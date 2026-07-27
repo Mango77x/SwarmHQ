@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Map as MapLibreMap, Marker, NavigationControl, setWorkerUrl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { fetchDrones, type Drone } from "../api/drones";
+import { connectLiveDrones } from "../api/liveDrones";
 
 // Vite doesn't detect maplibre-gl's internal worker construction and
 // never bundles maplibre-gl-worker.mjs as its own asset, so tiles never
@@ -13,7 +14,6 @@ setWorkerUrl(`${import.meta.env.BASE_URL}maplibre-gl-worker.mjs`);
 
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/dark";
 const MADRID_CENTER: [number, number] = [-3.7038, 40.4168];
-const REFRESH_INTERVAL_MS = 3000;
 
 const STATUS_COLOR: Record<Drone["status"], string> = {
   PATROLLING: "#22c55e",
@@ -39,6 +39,7 @@ export default function TacticalMap() {
   const mapRef = useRef<MapLibreMap | null>(null);
   const markersRef = useRef<Map<string, Marker>>(new Map());
   const [error, setError] = useState<string | null>(null);
+  const [live, setLive] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -59,56 +60,67 @@ export default function TacticalMap() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    function upsertMarker(drone: Drone) {
+      if (drone.lat == null || drone.lon == null || !mapRef.current) return;
 
-    async function refresh() {
-      try {
-        const drones = await fetchDrones();
-        if (cancelled || !mapRef.current) return;
-        setError(null);
-
-        const seen = new Set<string>();
-        for (const drone of drones) {
-          if (drone.lat == null || drone.lon == null) continue;
-          seen.add(drone.externalId);
-
-          const existing = markersRef.current.get(drone.externalId);
-          if (existing) {
-            existing.setLngLat([drone.lon, drone.lat]);
-            existing.getElement().title = `${drone.externalId} · ${drone.status} · ${drone.batteryPercent}%`;
-            existing.getElement().style.backgroundColor = STATUS_COLOR[drone.status] ?? "#94a3b8";
-          } else {
-            const marker = new Marker({ element: droneMarkerElement(drone) })
-              .setLngLat([drone.lon, drone.lat])
-              .addTo(mapRef.current);
-            markersRef.current.set(drone.externalId, marker);
-          }
-        }
-
-        for (const [externalId, marker] of markersRef.current) {
-          if (!seen.has(externalId)) {
-            marker.remove();
-            markersRef.current.delete(externalId);
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load drones");
-        }
+      const existing = markersRef.current.get(drone.externalId);
+      if (existing) {
+        existing.setLngLat([drone.lon, drone.lat]);
+        existing.getElement().title = `${drone.externalId} · ${drone.status} · ${drone.batteryPercent}%`;
+        existing.getElement().style.backgroundColor = STATUS_COLOR[drone.status] ?? "#94a3b8";
+      } else {
+        const marker = new Marker({ element: droneMarkerElement(drone) })
+          .setLngLat([drone.lon, drone.lat])
+          .addTo(mapRef.current);
+        markersRef.current.set(drone.externalId, marker);
       }
     }
 
-    refresh();
-    const interval = setInterval(refresh, REFRESH_INTERVAL_MS);
+    let cancelled = false;
+
+    // REST gives the baseline (drones that reported before this page loaded);
+    // the STOMP subscription below then keeps it live - no more polling.
+    fetchDrones()
+      .then((drones) => {
+        if (cancelled) return;
+        setError(null);
+        drones.forEach(upsertMarker);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load drones");
+        }
+      });
+
+    const disconnect = connectLiveDrones(
+      (drone) => {
+        if (cancelled) return;
+        setError(null);
+        upsertMarker(drone);
+      },
+      (connected) => {
+        if (!cancelled) setLive(connected);
+      },
+    );
+
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      disconnect();
     };
   }, []);
 
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
+      <div
+        className="absolute bottom-4 left-4 flex items-center gap-1.5 rounded bg-slate-950/80 px-2 py-1 text-xs text-slate-300 shadow-lg"
+        title={live ? "Live updates connected" : "Live updates disconnected - reconnecting…"}
+      >
+        <span
+          className={`h-1.5 w-1.5 rounded-full ${live ? "bg-green-500" : "bg-slate-500"}`}
+        />
+        {live ? "live" : "connecting…"}
+      </div>
       {error && (
         <div className="absolute top-4 left-4 rounded bg-red-950/90 px-3 py-2 text-sm text-red-200 shadow-lg">
           {error}

@@ -7,9 +7,9 @@ import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 
 /**
- * STOMP endpoint and broker wiring only. No destinations are published to
- * yet - live telemetry push is added once the MQTT listener (Sprint 4) and
- * map frontend (Sprint 6/7) exist.
+ * STOMP endpoint and broker wiring. {@code DroneService} publishes to
+ * {@code /topic/drones} (Sprint 7) - clients connect to {@code /ws} and
+ * subscribe there for live drone updates instead of polling REST.
  */
 @Configuration
 @EnableWebSocketMessageBroker

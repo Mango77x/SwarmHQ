@@ -1,30 +1,26 @@
 package com.swarmhq.mqtt;
 
-import com.swarmhq.model.Drone;
-import com.swarmhq.model.DroneStatus;
-import com.swarmhq.repository.DroneRepository;
+import com.swarmhq.service.DroneService;
 import jakarta.annotation.PostConstruct;
 import org.eclipse.paho.mqttv5.client.IMqttMessageListener;
 import org.eclipse.paho.mqttv5.client.MqttClient;
 import org.eclipse.paho.mqttv5.common.MqttException;
 import org.eclipse.paho.mqttv5.common.MqttMessage;
 import org.eclipse.paho.mqttv5.common.MqttSubscription;
-import org.locationtech.jts.geom.Coordinate;
-import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.PrecisionModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
-import java.time.Instant;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Subscribes to drone telemetry and upserts the corresponding Drone row.
- * Alerting/business logic (low battery, geofencing, ...) is not this
- * listener's job - that's Sprint 8.
+ * Translates drone telemetry off MQTT into a {@link DroneService} call -
+ * persistence and the live STOMP push both live there (same
+ * thin-listener/service-layer split as {@code DroneController}). Alerting/
+ * business logic (low battery, geofencing, ...) is not this listener's
+ * job - that's Sprint 8.
  */
 @Component
 public class DroneTelemetryListener {
@@ -32,15 +28,14 @@ public class DroneTelemetryListener {
     private static final Logger log = LoggerFactory.getLogger(DroneTelemetryListener.class);
     private static final String TOPIC_FILTER = "drones/+/telemetry";
     private static final Pattern TOPIC_PATTERN = Pattern.compile("^drones/([^/]+)/telemetry$");
-    private static final GeometryFactory GEOMETRY_FACTORY = new GeometryFactory(new PrecisionModel(), 4326);
 
     private final MqttClient mqttClient;
-    private final DroneRepository droneRepository;
+    private final DroneService droneService;
     private final ObjectMapper objectMapper;
 
-    public DroneTelemetryListener(MqttClient mqttClient, DroneRepository droneRepository, ObjectMapper objectMapper) {
+    public DroneTelemetryListener(MqttClient mqttClient, DroneService droneService, ObjectMapper objectMapper) {
         this.mqttClient = mqttClient;
-        this.droneRepository = droneRepository;
+        this.droneService = droneService;
         this.objectMapper = objectMapper;
     }
 
@@ -66,21 +61,9 @@ public class DroneTelemetryListener {
 
         try {
             TelemetryPayload payload = objectMapper.readValue(message.getPayload(), TelemetryPayload.class);
-            applyTelemetry(externalId, payload);
+            droneService.applyTelemetry(externalId, payload);
         } catch (Exception e) {
             log.error("Failed to process telemetry from drone '{}': {}", externalId, e.getMessage(), e);
         }
-    }
-
-    private void applyTelemetry(String externalId, TelemetryPayload payload) {
-        Drone drone = droneRepository.findByExternalId(externalId)
-                .orElseGet(() -> new Drone(externalId, payload.type(), DroneStatus.valueOf(payload.status()), payload.batteryPercent()));
-
-        drone.setPosition(GEOMETRY_FACTORY.createPoint(new Coordinate(payload.lon(), payload.lat())));
-        drone.setBatteryPercent(payload.batteryPercent());
-        drone.setStatus(DroneStatus.valueOf(payload.status()));
-        drone.setLastUpdateAt(payload.timestamp() != null ? payload.timestamp() : Instant.now());
-
-        droneRepository.save(drone);
     }
 }
