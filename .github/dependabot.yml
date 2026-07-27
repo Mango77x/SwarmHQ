@@ -1,0 +1,18 @@
+# Automated dependency update PRs.
+#
+# Maven and npm ecosystems will be added once the Spring Boot backend and
+# any frontend package manifest exist (Sprint 2+).
+
+version: 2
+updates:
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
