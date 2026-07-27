@@ -237,53 +237,36 @@ environment (your machine, CI, etc.) keeps its own values.
   unwrapping, not `.orElseThrow()`, inside an `untilAsserted` block (see
   `DroneTelemetryListenerTests` - this exact bug made that test flaky until
   fixed).
-- **⚠️ UNRESOLVED (as of this writing) - the map renders (canvas, controls,
-  markers, attribution all present and correct) but shows only the dark
-  background color, no actual roads/land - i.e. it looks "black"/empty.**
-  This is NOT the harmless `npm run dev` warning it was previously
-  (incorrectly - see below) documented as. Investigation so far:
-  - `performance.getEntriesByType('resource')` shows the style JSON,
-    TileJSON source (`/planet`), and sprite requests all succeed, but
-    **zero** `.pbf` vector-tile requests ever fire. Tiles are never even
-    requested - this isn't a network/CORS failure, tile fetching itself
-    never kicks off.
-  - Root cause: Vite does not detect/bundle `maplibre-gl`'s internal web
-    worker (used to fetch/decode vector tiles) as a separate asset at
-    all - `frontend/dist/` never contains a `maplibre-gl-worker*.mjs`
-    file after `npm run build`, in Docker or locally. Without that
-    worker, tile loading silently never starts (no error is thrown
-    anywhere - console is clean).
-  - `worker: { format: 'es' }` in `vite.config.ts` did **not** fix it
-    (tried and reverted).
-  - Attempted fix (uncommitted/unverified as of the interruption that
-    produced this note): copy
-    `node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs` into
-    `frontend/public/maplibre-gl-worker.mjs` (Vite copies `public/`
-    verbatim, unbundled) and call MapLibre's
-    `setWorkerUrl(\`${import.meta.env.BASE_URL}maplibre-gl-worker.mjs\`)`
-    once at module load in `TacticalMap.tsx`, **before** constructing the
-    `Map`. After rebuilding the Docker image, `/app/maplibre-gl-worker.mjs`
-    correctly returned `200`, the served JS bundle hash changed
-    (confirming the rebuild picked up the source change), but tiles
-    *still* hadn't started loading by the time this session ended -
-    **not confirmed fixed, needs a fresh look**: re-check
-    `read_console_messages` for a worker-side error (e.g. the copied
-    worker file may itself `import` something via a relative path that
-    doesn't resolve once it's sitting in `public/` rather than inside
-    `node_modules/maplibre-gl/dist/`), and re-check with
-    `performance.getEntriesByType('resource')` for `.pbf` requests after
-    a hard reload (Ctrl+Shift+R / disable cache) to rule out a stale
-    cached bundle.
-  - If the `public/`-copy approach turns out not to work: MapLibre also
-    exports `setWorkerUrl` accepting *any* URL, so pointing it at a
-    CDN-hosted copy (e.g. `https://unpkg.com/maplibre-gl@6.0.0/dist/maplibre-gl-worker.mjs`)
-    would at least confirm the diagnosis, even though a runtime CDN
-    dependency isn't the preferred permanent fix (offline/CSP concerns).
-    Another angle worth trying: pin `maplibre-gl` to a different version
-    (this was all diagnosed against `6.0.0`) in case worker bundling
-    behaves differently there, or check MapLibre's own GitHub issues for
-    a documented Vite-specific fix (a docs page fetch 404'd mid-session
-    and wasn't retried).
+- **Map renders (canvas, controls, markers, attribution all present) but
+  shows only the dark background color, no actual roads/land**: Vite
+  doesn't detect/bundle `maplibre-gl`'s internal web worker (used to
+  fetch/decode vector tiles) as a separate asset, so `TacticalMap.tsx`
+  points MapLibre at a copy served as a plain static file via
+  `setWorkerUrl()`. That copy alone isn't enough, though:
+  `maplibre-gl-worker.mjs` itself statically imports a sibling chunk,
+  `maplibre-gl-shared.mjs` - copying only the worker file makes that
+  import 404 *inside the worker's module graph*, which fails silently
+  (no console error on the main thread; the worker still constructs
+  without throwing, it just never ends up handling tile-load messages).
+  Fixed by `frontend/scripts/copy-maplibre-worker.mjs`, which copies both
+  files from `node_modules/maplibre-gl/dist/` into `frontend/public/`
+  before every `dev`/`build` (wired in via `predev`/`prebuild` in
+  `package.json`) - generated vendor files like these are copied at
+  build time, not hand-committed, so they can't silently drift from the
+  installed `maplibre-gl` version. Confirmed fixed end-to-end: real
+  `.pbf` tile requests fire and the map renders actual terrain/roads
+  after a full `docker compose up -d --build backend` + browser check.
+  - Diagnostic pitfall hit while chasing this: `performance.getEntriesByType`
+    only reports the worker's *static* `import` (resolved before the
+    worker's realm starts), not `fetch()` calls made from code running
+    inside it - so don't conclude "no tile requests" from the main
+    thread's resource timing alone. And separately: MapLibre's render
+    loop is driven by `requestAnimationFrame`, which doesn't run at all
+    while a browser-automation pane is off-screen/not compositing - a
+    map can look permanently "stuck" (no tile requests, no `idle` event)
+    in that state for reasons that have nothing to do with the app.
+    Always confirm a stuck-map symptom with the pane actually visible
+    (or a manually-opened browser tab) before trusting it as a real bug.
 - **The map/app loads at `/app` but the JS/CSS 404 at `/assets/...` (not
   `/app/assets/...`)**: Vite defaults to root-relative asset paths, which
   is wrong once the SPA is actually served from a subpath. Fixed by
