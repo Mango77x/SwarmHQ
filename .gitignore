@@ -1,0 +1,32 @@
+# Environment / secrets
+.env
+
+# Java / Maven / Gradle
+target/
+build/
+.gradle/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+infra/mosquitto/log/*
+!infra/mosquitto/log/.gitkeep
+infra/mosquitto/data/*
+!infra/mosquitto/data/.gitkeep
+
+# Docker volumes (bind-mounted local data, not source)
+infra/postgres-data/
