@@ -17,23 +17,24 @@ import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.PrecisionModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
- * @Transactional so every row this test writes rolls back automatically -
- * important since the local dev database also carries real data from
- * manual/simulator testing sessions (drones, events). Mission-derived
- * assertions can be exact (nothing else in the codebase writes Mission
- * rows yet - mission assignment is a post-MVP differentiation layer);
- * drone/event-derived ones compare against a "before" snapshot instead,
- * since those tables do carry pre-existing real data.
+ * @Transactional so every row this test writes rolls back automatically.
+ * Every assertion here compares against a "before" snapshot rather than an
+ * absolute value, since the local dev database carries real data from
+ * manual/simulator testing (drones, events, and - since Sprint 10 -
+ * missions too). The scheduler is disabled (see MissionAssignmentService)
+ * so its background tick can't additionally mutate Mission/Drone state
+ * mid-test.
  */
 @SpringBootTest
+@TestPropertySource(properties = "swarmhq.mission-assignment.scheduler-enabled=false")
 @Transactional
 class KpiServiceTests {
 
@@ -52,15 +53,21 @@ class KpiServiceTests {
     private DroneRepository droneRepository;
 
     @Test
-    void noSuccessRateUntilAMissionHasCompletedOrFailed() {
+    void addingPendingOrActiveMissionsDoesNotChangeTheSuccessRate() {
+        Double before = kpiService.summarize().missionSuccessRatePercent();
+
         missionRepository.saveAndFlush(mission(MissionStatus.PENDING));
         missionRepository.saveAndFlush(mission(MissionStatus.ACTIVE));
 
-        assertNull(kpiService.summarize().missionSuccessRatePercent());
+        assertEquals(before, kpiService.summarize().missionSuccessRatePercent());
     }
 
     @Test
     void countsActiveMissionsAndComputesSuccessRate() {
+        long baselineActive = missionRepository.countByStatus(MissionStatus.ACTIVE);
+        long baselineCompleted = missionRepository.countByStatus(MissionStatus.COMPLETED);
+        long baselineFailed = missionRepository.countByStatus(MissionStatus.FAILED);
+
         missionRepository.saveAndFlush(mission(MissionStatus.ACTIVE));
         missionRepository.saveAndFlush(mission(MissionStatus.ACTIVE));
         missionRepository.saveAndFlush(mission(MissionStatus.COMPLETED));
@@ -69,8 +76,10 @@ class KpiServiceTests {
 
         KpiSummary summary = kpiService.summarize();
 
-        assertEquals(2, summary.activeMissions());
-        assertEquals(200.0 / 3, summary.missionSuccessRatePercent(), 1e-9);
+        assertEquals(baselineActive + 2, summary.activeMissions());
+        long completed = baselineCompleted + 2;
+        long failed = baselineFailed + 1;
+        assertEquals(100.0 * completed / (completed + failed), summary.missionSuccessRatePercent(), 1e-9);
     }
 
     @Test

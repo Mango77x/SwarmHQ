@@ -100,10 +100,11 @@ schema owned by Flyway (`backend/src/main/resources/db/migration`):
   `SIGNAL_LOST`), last update timestamp.
 - **Mission**: id, route (`geometry(LineString,4326)`), an optional
   many-to-one assigned drone (kept single-drone for MVP simplicity - the
-  "assign missions to multiple drones" case is deferred to the mission
-  assignment engine / swarm differentiation layers, not solved here),
-  status (`PENDING` / `ACTIVE` / `COMPLETED` / `FAILED`), priority (`LOW` /
-  `MEDIUM` / `HIGH`), created-at timestamp.
+  "assign missions to multiple drones" case is deferred to the swarm
+  differentiation layer, not solved here), status (`PENDING` / `ACTIVE` /
+  `COMPLETED` / `FAILED`), priority (`LOW` / `MEDIUM` / `HIGH`), created-at
+  timestamp. Unpopulated (schema only, no writer) until Sprint 10's
+  `MissionAssignmentService` - see "Mission assignment" below.
 - **Event**: append-only audit log entry - many-to-one to `Drone` (required)
   and `Mission` (optional), type (`LOW_BATTERY` / `WAYPOINT_REACHED` /
   `SIGNAL_LOST` / `SIGNAL_RECOVERED` / `STATUS_CHANGE` / `ENTERED_RISK_ZONE`
@@ -173,6 +174,16 @@ Implemented as of Sprint 4
 - **Scope**: this listener only ingests and persists. It does not raise
   alerts, detect signal loss, or apply any business rule - that's Sprint 8
   (and the network-resilience differentiation layer) territory.
+- **Mission assignment** (Sprint 10, `MissionAssignmentService`/
+  `MissionStatusListener`): two more topics, the reply pair to the
+  telemetry one above.
+  - `drones/{externalId}/mission` (backend → simulator, published once per
+    assignment): `{"missionId": 5, "route": [[lon,lat], ...], "priority":
+    "HIGH"}` - the same `[lon,lat]` order as every REST geometry DTO.
+  - `drones/{externalId}/mission-status` (simulator → backend, published
+    once the drone finishes or aborts the route):
+    `{"missionId": 5, "status": "COMPLETED"}` or
+    `{"missionId": 5, "status": "FAILED", "reason": "low_battery"}`.
 
 ## Drone simulator
 
@@ -181,21 +192,78 @@ Implemented as of Sprint 5 (`simulator/`, Python, `paho-mqtt`):
 - Each simulated drone (`DRONE_COUNT`, default 4) patrols a fixed square
   waypoint loop, offset diagonally per drone so routes don't overlap
   (`routes.py`). Index 0 of a route is that drone's base.
-- Battery drains once per publish tick while patrolling
-  (`BATTERY_DRAIN_PER_TICK`); once it hits `LOW_BATTERY_THRESHOLD` the
-  drone breaks off its patrol loop, heads straight to base instead
-  (`status` becomes `RETURNING`), recharges to 100% on arrival, and resumes
-  patrolling - the same patrol/go-to-point/return-to-base behavior the
-  original spec calls for, driven entirely by the simulator itself with no
-  backend involvement (no `Mission` is created or read here - that's the
-  centralized assignment engine, a later differentiation layer).
+- Battery drains once per publish tick while patrolling or flying a
+  mission (`BATTERY_DRAIN_PER_TICK`); once it hits `LOW_BATTERY_THRESHOLD`
+  the drone breaks off (aborting any in-progress mission first, see
+  below), heads straight to base instead (`status` becomes `RETURNING`),
+  recharges to 100% on arrival, and resumes patrolling - the same
+  patrol/go-to-point/return-to-base behavior the original spec calls for.
 - Publishes to `drones/{externalId}/telemetry` (`drone-1`, `drone-2`, ...)
   on a fixed interval (`PUBLISH_INTERVAL_SECONDS`, default 2s) matching the
   "MQTT contract" above exactly, so the Sprint 4 listener needed no changes
   to consume it.
+- **Flying an assigned mission (Sprint 10, `drones.py`'s `Drone.start_mission`)**:
+  subscribing to its own `drones/{externalId}/mission` topic, a `PATROLLING`
+  drone breaks off its fixed patrol loop to fly the assigned route instead
+  (`status` becomes `ON_MISSION`), publishing `mission-status: COMPLETED`
+  on reaching the final waypoint (then resuming patrol from wherever it
+  physically ended up) or `FAILED` if battery forces an abort mid-route.
+  `Drone.tick()` (main loop thread) and `Drone.start_mission()` (MQTT
+  client's own network thread, from `loop_start()`) mutate the same
+  state, so each `Drone` instance guards both behind its own lock.
 - Deliberately out of scope for this sprint: GPS noise/Kalman filtering,
   random signal loss, and swarm/auction coordination between drones - each
   is its own later differentiation layer.
+
+## Mission assignment
+
+Implemented as of Sprint 10
+(`backend/src/main/java/com/swarmhq/service/MissionAssignmentService.java`) -
+the "constrained mission assignment" differentiation layer, moved ahead of
+security hardening in the roadmap because it closes a gap Sprint 9 shipped
+knowingly incomplete (see Roadmap below):
+
+- A `@Scheduled` pass (every 5s) re-evaluates every `PENDING` mission,
+  priority order first (`HIGH`/`MEDIUM`/`LOW`, sorted in Java - sorting by
+  `MissionPriority` in a derived query would sort alphabetically by the
+  stored enum string instead, "HIGH" < "LOW" < "MEDIUM", not by actual
+  priority), oldest-within-priority second. Re-evaluating every PENDING
+  mission each tick (not just newly created ones) means a mission left
+  unassigned because no drone qualified last time gets picked up
+  automatically once one does.
+- For each mission, `DroneRepository.findBestForMission` (native query,
+  `ORDER BY ST_Distance(position::geography, mission_start::geography) /
+  (battery_percent / 100.0) LIMIT 1`) picks the closest eligible
+  (`PATROLLING`, battery above `AlertService.LOW_BATTERY_THRESHOLD + 10`)
+  drone - real PostGIS distance in meters (the `::geography` casts), not
+  hand-rolled haversine math, same theme as `RiskZoneRepository`. Queried
+  fresh per mission, not from one snapshot up front, so a drone claimed
+  earlier in the same pass is already excluded from the next mission's
+  query.
+- Assignment flips the drone to `ON_MISSION` immediately
+  (`DroneService.markOnMission`) rather than waiting for the simulator's
+  next telemetry tick to confirm it - the backend is the one deciding the
+  assignment and needs the drone to read as unavailable right away, not
+  after up to one telemetry interval's delay (which could otherwise let
+  the same assignment pass hand it a second mission). This also means the
+  `STATUS_CHANGE` alert (Sprint 8) fires from the assignment itself, for
+  free.
+- On completion/failure feedback (`MissionStatusListener`), `Mission.status`
+  updates and an `Event` is raised against the now-used `Event.mission`
+  field and `EventType.WAYPOINT_REACHED` (completed) or the new
+  `MISSION_FAILED` (aborted) - both persisted and broadcast to
+  `/topic/events` (`AlertService.raiseMissionEvent`), same as every other
+  alert.
+- `GET /api/missions` / `POST /api/missions` (see REST API below) exist so
+  the loop is testable/demonstrable without a UI: `V4__seed_demo_missions.sql`
+  seeds two demo missions placed near the simulator's actual patrol area,
+  so a normal `docker compose up` run assigns, flies, and completes them
+  automatically.
+- Test-only note: `swarmhq.mission-assignment.scheduler-enabled` (default
+  `true`) disables the `@Scheduled` tick without touching
+  `assignPendingMissions()` itself - set to `false` via `@TestPropertySource`
+  in `MissionAssignmentServiceTests`/`KpiServiceTests` so a background tick
+  can't race their own assertions.
 
 ## Dashboard KPIs
 
@@ -214,16 +282,13 @@ Implemented as of Sprint 9
   instantly - broadcasting a full recompute on every single
   drone/event/mission write would cost real complexity for no meaningful
   benefit here.
-- **Mission KPIs will show `0` active / `null` (`N/A`) success rate** on a
-  fresh install, honestly - this project has no path that ever creates a
-  `Mission` row yet (`Mission` has existed unused since Sprint 3; centrally
-  assigning drones to missions is the "Constrained mission assignment"
-  differentiation layer, deliberately post-MVP). `missionSuccessRatePercent`
-  is `null` rather than `0` specifically to distinguish "no missions have
-  ever finished" from "0% succeeded" - those are different facts. Once
-  that differentiation layer exists and starts writing real `Mission`
-  rows, these two KPIs start reflecting real data with no changes needed
-  here.
+- **Mission KPIs reflect real data as of Sprint 10** - `MissionAssignmentService`/
+  `MissionStatusListener` (see "Mission assignment" above) are the write
+  path `Mission` never had before. `missionSuccessRatePercent` stays
+  `null` (not `0`) specifically when no mission has completed or failed
+  *yet* - "no data" and "0% succeeded" are different facts - which is
+  still the case on a totally fresh install for the few seconds before
+  the seeded demo missions get assigned and flown.
 
 ## REST API
 
@@ -246,6 +311,14 @@ Implemented as of Sprint 6:
 - `GET /api/kpis` (Sprint 9) - dashboard aggregates (`KpiService.summarize`,
   see "Dashboard KPIs" below). The one REST endpoint that's polled rather
   than pushed - see that section for why.
+- `GET /api/missions` / `POST /api/missions` (Sprint 10, `MissionController`
+  → `MissionService`) - list every mission (`MissionResponse`: `id`,
+  `route` as `[lon,lat]` pairs, `assignedDroneExternalId` - `null` until
+  `MissionAssignmentService` picks one, `status`, `priority`, `createdAt`)
+  or create one (`CreateMissionRequest`: `route`, `priority` - always
+  starts `PENDING`, same "not this controller's job" reasoning as
+  everywhere else in this project - `MissionAssignmentService`'s scheduled
+  pass, not the request itself, decides who flies it).
 
 ## WebSocket contract
 
@@ -356,7 +429,7 @@ the differentiation layers.
 
 | # | Sprint | Deliverable |
 |---|---|---|
-| 10 |  | Constrained mission assignment engine |
+| 10 | ✅ | Constrained mission assignment engine |
 | 11 |  | Security hardening: MQTT over TLS + per-drone auth |
 | 12 |  | Kalman filtering: simulated GPS noise + backend smoothing |
 | 13 |  | Network resilience: simulated signal loss/reconnect |
@@ -373,44 +446,13 @@ hardening is still next right after it - cheap, and the original
 "communications security is the central concern in this domain" rationale
 below still holds.
 
-1. **Sprint 10 - Constrained mission assignment.**
-   - **MQTT contract additions**: `drones/{externalId}/mission`
-     (backend → simulator, published on assignment - `{missionId, route:
-     [[lon,lat],...], priority}`) and `drones/{externalId}/mission-status`
-     (simulator → backend, published on completion/failure -
-     `{missionId, status: "COMPLETED"|"FAILED", reason?}`).
-   - **Backend**: `POST /api/missions` (create a `PENDING` mission from a
-     requested route + priority) and `GET /api/missions`, matching the
-     thin-controller/service-layer convention everywhere else. A new
-     `MissionAssignmentService` runs on a fixed schedule, greedily
-     matching `PENDING` missions (priority order, then oldest first) to
-     eligible drones (`PATROLLING`, battery above a safety margin) by
-     `distance / (battery / 100)` - cheaper for closer, fuller-battery
-     drones - and publishes the assignment over MQTT. A new
-     `MissionStatusListener` (mirrors `DroneTelemetryListener`) consumes
-     the completion/failure feedback, updates `Mission.status`, and raises
-     an `Event` against the now-*used* `Event.mission` field and the
-     already-declared-but-never-raised `WAYPOINT_REACHED` type (plus a new
-     `MISSION_FAILED`) - both were provisioned in the Sprint 3 schema
-     specifically for this.
-   - **Simulator**: subscribes to its own assignment topic; on receiving
-     one, breaks off its fixed patrol loop to fly the given route
-     (reusing the existing waypoint-interpolation movement code,
-     generalized from a fixed square to an arbitrary point list),
-     publishing `status: "ON_MISSION"` telemetry meanwhile. Aborts
-     (`mission-status: FAILED`) and returns to base exactly like today's
-     low-battery handling if battery hits the threshold mid-mission;
-     otherwise publishes `COMPLETED` on reaching the final waypoint and
-     resumes normal patrolling.
-   - A couple of demo missions are seeded (Flyway, same convention as
-     Sprint 8's risk zone) near the simulator's patrol area so the whole
-     loop - create, assign, fly, complete - is demonstrable on a fresh
-     `docker compose up`, not just via a manual `POST`.
-   - Deliberately out of scope: a mission-creation UI (`POST /api/missions`
-     is enough for this sprint, same as risk zones having no creation UI
-     since Sprint 8); a live `/topic/missions` push (the KPI bar's
-     existing 5s poll is enough for aggregate counts, per Sprint 9's own
-     "polled, not pushed" reasoning).
+1. **Sprint 10 - Constrained mission assignment.** ✅ Done - see "Mission
+   assignment" and the new MQTT topics in "MQTT contract" above for the
+   implementation. Deliberately left out: a mission-creation UI
+   (`POST /api/missions` is enough for this sprint, same as risk zones
+   having no creation UI since Sprint 8) and a live `/topic/missions`
+   push (the KPI bar's existing 5s poll is enough for aggregate counts,
+   per Sprint 9's own "polled, not pushed" reasoning).
 2. **Sprint 11 - Security hardening.** MQTT over TLS (self-signed certs)
    with per-drone/unit authentication instead of an open channel. In
    defense contexts, communications security is the central concern, not

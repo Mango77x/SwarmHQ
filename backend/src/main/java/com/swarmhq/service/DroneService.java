@@ -70,6 +70,28 @@ public class DroneService {
         messagingTemplate.convertAndSend(DRONE_UPDATES_TOPIC, toResponse(drone));
     }
 
+    /**
+     * Flips a drone to {@code ON_MISSION} the moment
+     * {@code MissionAssignmentService} assigns it a mission (Sprint 10) -
+     * not waiting for the simulator's next telemetry tick to confirm it,
+     * since the backend is the one deciding the assignment and needs the
+     * drone to read as unavailable immediately (otherwise the same
+     * assignment pass could hand it a second mission before its own
+     * telemetry catches up). Battery/position are unchanged, so only the
+     * status-change check in {@link AlertService#evaluate} does anything
+     * here. The reverse transition (mission ends → back to
+     * {@code PATROLLING}) needs no equivalent method - the simulator
+     * resumes patrolling on its own and reports it via ordinary telemetry,
+     * same as any other status change.
+     */
+    public void markOnMission(Drone drone) {
+        DroneStatus previousStatus = drone.getStatus();
+        drone.setStatus(DroneStatus.ON_MISSION);
+        droneRepository.save(drone);
+        alertService.evaluate(drone, drone.getBatteryPercent(), previousStatus, drone.getPosition());
+        messagingTemplate.convertAndSend(DRONE_UPDATES_TOPIC, toResponse(drone));
+    }
+
     private static DroneResponse toResponse(Drone drone) {
         Point position = drone.getPosition();
         Double lat = position != null ? position.getY() : null;
