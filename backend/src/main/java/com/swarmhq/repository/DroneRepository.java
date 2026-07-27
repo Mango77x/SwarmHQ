@@ -8,4 +8,6 @@ import java.util.Optional;
 public interface DroneRepository extends JpaRepository<Drone, Long> {
 
     Optional<Drone> findByExternalId(String externalId);
+
+    long countByBatteryPercentLessThanEqual(int threshold);
 }

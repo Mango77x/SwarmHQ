@@ -1,7 +1,7 @@
 # SwarmHQ
 
 <p align="center">
-  <img alt="STATUS" src="https://img.shields.io/badge/status-sprint%208%20of%209-informational?style=for-the-badge">
+  <img alt="STATUS" src="https://img.shields.io/badge/status-core%20MVP%20complete%20(9%2F9)-success?style=for-the-badge">
   <a href="HELP.md">
     <img alt="HELP" src="https://img.shields.io/badge/help-HELP.md-informational?style=for-the-badge">
   </a>
@@ -70,13 +70,15 @@ Full rationale for each choice in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
 
 ## Status
 
-**Sprint 8 of 9** — the map now raises automatic alerts: low battery,
-drone status changes, and entering/leaving a geofenced risk zone (rendered
-on the map as a translucent red overlay) each push a live entry to a
-"recent alerts" panel and get persisted as an audit trail (`GET
-/api/events`). See [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for the full
-sprint plan and [HELP.md](HELP.md) for how to run it and known
-limitations.
+**Core MVP complete (9 of 9)** — the full pipeline runs end to end:
+simulator → MQTT → PostGIS → live tactical map with automatic alerts
+(low battery, status changes, geofenced risk zones) and a KPI dashboard
+strip (active missions, mission success rate, alerts in the last hour,
+drones at critical battery). Mission-related KPIs are honestly `0`/`N/A`
+today - nothing creates a `Mission` yet, that's the next layer below.
+See [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for the full sprint plan
+(and what's next: the differentiation layers) and [HELP.md](HELP.md) for
+how to run it and known limitations.
 
 ---
 

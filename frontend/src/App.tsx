@@ -1,3 +1,4 @@
+import KpiBar from "./components/KpiBar";
 import TacticalMap from "./components/TacticalMap";
 
 function App() {
@@ -8,6 +9,7 @@ function App() {
           SwarmHQ
         </span>
         <span className="text-xs text-slate-500">tactical map</span>
+        <KpiBar />
       </header>
       <main className="flex-1">
         <TacticalMap />
