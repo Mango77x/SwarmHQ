@@ -44,8 +44,7 @@ to cause real-world harm is in scope, ever.
                                                   |
                                        pushes via WebSocket (STOMP)
                                                   |
-                                    [MapLibre GL JS tactical map]
-                                    [Thymeleaf/Bootstrap admin panels]
+                                       [React + MapLibre GL JS frontend]
 ```
 
 ## Tech stack
@@ -58,8 +57,8 @@ to cause real-world harm is in scope, ever.
 | Persistence | Spring Data JPA + Hibernate Spatial | ORM with geometry type support for PostGIS |
 | Real-time push | Spring WebSocket (STOMP) | Pushes updates to the map instantly, no polling |
 | Database | PostgreSQL + PostGIS | Native geospatial storage and queries: zones, distances, intersections |
-| Map frontend | MapLibre GL JS | GPU-rendered vector map in the browser; animates moving drone markers smoothly |
-| Admin frontend | Thymeleaf + Bootstrap 5.3 | Mission list, drone detail, alert panel, KPI dashboard |
+| Frontend | React 19 + TypeScript + Vite + Tailwind 4 | Mission list, drone detail, alert panel, KPI dashboard - built and served together with the map, not a separate app |
+| Map | MapLibre GL JS | GPU-rendered vector map embedded in a React component; animates moving drone markers smoothly |
 | Environment | Docker + Docker Compose | Single-command reproducible local stack |
 
 ### Why this stack and not another
@@ -73,6 +72,21 @@ to cause real-world harm is in scope, ever.
 - **Spring Boot**: solid, already mastered from a previous project (MOLS),
   and no alternative is clearly better suited to this domain to justify the
   learning-curve cost.
+- **React + TypeScript + Vite + Tailwind, not Thymeleaf/Bootstrap**: the
+  original spec called for Thymeleaf, mirroring MOLS's first version - but
+  MOLS itself was later migrated off Thymeleaf to this exact React stack
+  because Thymeleaf didn't hold up well in practice for a real dashboard.
+  Revisited from scratch for SwarmHQ rather than assumed: a live tactical
+  map with WebSocket-driven state and KPI charts is squarely the kind of
+  stateful, component-heavy UI React's ecosystem (map wrappers, charting
+  libraries, WebSocket hooks) is built for, and it's what recruiters in
+  this space actually recognize. Reusing MOLS's validated stack also means
+  zero new frontend tooling to debug.
+- **OpenFreeMap over MapTiler** for map tiles: both are free, but
+  OpenFreeMap needs no account/API key at all, and its built-in `dark`
+  style (in the Dark Matter lineage, a de facto standard for dashboard
+  basemaps) fits the tactical aesthetic better out of the box than
+  MapTiler's tourism/commercial-oriented default styles.
 
 ## Data model (baseline)
 
@@ -146,6 +160,45 @@ Implemented as of Sprint 5 (`simulator/`, Python, `paho-mqtt`):
   random signal loss, and swarm/auction coordination between drones - each
   is its own later differentiation layer.
 
+## REST API
+
+Implemented as of Sprint 6:
+
+- `GET /api/drones` - every drone's last known state (thin
+  `DroneController` → `DroneService` → `DroneRepository`, matching the
+  thin-controller/service-layer convention from MOLS). Returns
+  `externalId`, `type`, `lat`/`lon` (`null` until the drone's first
+  telemetry arrives), `batteryPercent`, `status`, `lastUpdateAt` - the
+  internal database id is never exposed, `externalId` is the public
+  identifier throughout.
+
+## Frontend
+
+Implemented as of Sprint 6 (`frontend/`, React 19 + TypeScript + Vite +
+Tailwind 4 + `maplibre-gl`):
+
+- Single page for now: a header bar and a full-height `TacticalMap`
+  component. `TacticalMap` renders a MapLibre map on OpenFreeMap's `dark`
+  style centered on the simulator's patrol area, polls `GET /api/drones`
+  every few seconds, and keeps one MapLibre `Marker` per drone in sync
+  (added/moved/removed), colored by status (green patrolling, blue on
+  mission, amber returning, red signal lost).
+- Polling rather than the WebSocket push mentioned in the architecture
+  diagram is deliberate for this sprint - "via REST, last known position"
+  is exactly what the roadmap calls for here. Sprint 7 replaces/complements
+  it with real WebSocket-driven updates.
+- **Build/serve integration**: `frontend/` is a self-contained Vite
+  project (its own `npm run dev`/`npm run build`, proxying `/api` to
+  `localhost:8080` in dev). It is *not* part of the backend's default
+  Maven build - `./mvnw test` and `./mvnw spring-boot:run` stay fast and
+  Java-only. A dedicated `frontend` Maven profile
+  (`./mvnw package -Pfrontend`) installs Node via `frontend-maven-plugin`,
+  runs `npm ci && npm run build`, and copies `frontend/dist` into
+  `src/main/resources/static/app`, so the bundled jar serves the SPA at
+  `/app` - same end result as MOLS, reached deliberately (a profile gate)
+  rather than copied wholesale, since backend iteration is far more
+  frequent here than producing a bundled jar.
+
 ## Roadmap
 
 ### Core build (MVP, in order)
@@ -157,7 +210,7 @@ Implemented as of Sprint 5 (`simulator/`, Python, `paho-mqtt`):
 | 3 | ✅ | `Drone` / `Mission` / `Event` entities with PostGIS `Point` geometry |
 | 4 | ✅ | MQTT listener persisting incoming telemetry (`drones/+/telemetry`) |
 | 5 | ✅ | Basic simulator: 3-5 drones moving between waypoints over MQTT |
-| 6 |  | Static tactical map (MapLibre) via REST, last known position |
+| 6 | ✅ | Static tactical map (MapLibre) via REST, last known position |
 | 7 |  | Live updates over WebSocket/STOMP |
 | 8 |  | Business logic: battery/status alerts, geofenced risk zones |
 | 9 |  | KPI dashboard (active missions, success rate, recent alerts, critical battery) |

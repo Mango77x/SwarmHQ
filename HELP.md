@@ -8,6 +8,8 @@ Local setup and troubleshooting notes. For architecture and roadmap, see
 - Docker + Docker Compose
 - JDK 21+ (the Maven wrapper handles Maven itself — no local Maven install needed)
 - Python 3.11+ (for the simulator)
+- Node 20+ (for the frontend; not required for `./mvnw package -Pfrontend`,
+  which downloads its own pinned Node version automatically)
 
 ## Running the infrastructure (Sprint 1)
 
@@ -93,6 +95,33 @@ Tunable via environment variables: `MQTT_HOST`, `MQTT_PORT`,
 `BATTERY_DRAIN_PER_TICK`, `LOW_BATTERY_THRESHOLD` (see `simulator/config.py`
 for defaults).
 
+## Running the frontend
+
+For day-to-day frontend work, from `frontend/`:
+
+```bash
+npm install
+npm run dev
+```
+
+Opens on `http://localhost:5173` with hot reload; its dev server proxies
+`/api/*` to `http://localhost:8080` (see `vite.config.ts`), so it expects
+the backend to already be running there. `npm run build` produces a
+production bundle in `frontend/dist/` on its own, without touching the
+backend.
+
+To produce a single Spring Boot jar with the built frontend baked in
+(`static/app`, served at `/app`), from `backend/`:
+
+```bash
+./mvnw package -Pfrontend
+```
+
+This is a separate Maven profile, not part of the default build, on
+purpose: plain `./mvnw test` / `./mvnw spring-boot:run` stay fast and
+don't require Node at all. Only reach for `-Pfrontend` when you actually
+need the bundled artifact.
+
 ## Environment variables
 
 Copy `.env.example` to `.env` before first run; `.env` is gitignored so each
@@ -154,6 +183,20 @@ environment (your machine, CI, etc.) keeps its own values.
   ```bash
   ./mvnw spring-boot:run -Dspring-boot.run.arguments=--spring.main.web-application-type=none
   ```
+  That trick disables the web server entirely though, so it can't help
+  verify `GET /api/drones` or the frontend against a live backend on an
+  affected machine - there's currently no way to run a real Tomcat here at
+  all. What still works: `DroneControllerTests` (MockMvc drives the
+  `DispatcherServlet` in-memory, no socket involved) proves the endpoint's
+  behavior; and for the frontend, `npm run dev` (a Node process, unaffected
+  by this JDK-specific bug) against a small throwaway mock HTTP server
+  standing in for `/api/drones` is enough to verify the map/markers render
+  correctly - inspect via the browser tool's `read_page` (accessibility
+  tree - confirms marker count/labels), `read_network_requests` (confirms
+  the OpenFreeMap style/tiles actually loaded), and
+  `performance.getEntriesByType('resource')` for the map `<canvas>`'s
+  actual pixel dimensions, since a raw screenshot may not always be
+  available depending on how the browser pane is displayed.
 - **Hibernate fails at startup with `SchemaManagementException: Schema
   validation: missing table [...]`, and nothing in the log mentions
   Flyway at all**: Spring Boot 4 split Flyway autoconfiguration into its
@@ -178,6 +221,12 @@ environment (your machine, CI, etc.) keeps its own values.
   unwrapping, not `.orElseThrow()`, inside an `untilAsserted` block (see
   `DroneTelemetryListenerTests` - this exact bug made that test flaky until
   fixed).
+- **`npm run dev` logs `The file does not exist at
+  ".../node_modules/.vite/deps/maplibre-gl-worker.mjs"`**: a known
+  Vite dependency-pre-bundling quirk with `maplibre-gl` (it ships a web
+  worker entry point Vite's optimizer doesn't handle perfectly). Harmless
+  in practice - the map still initializes and renders correctly despite
+  the warning.
 - **`docker compose up` fails pulling images**: confirm Docker Desktop /
   the Docker daemon is running.
 - **Postgres container unhealthy**: check `docker compose logs postgis` —
