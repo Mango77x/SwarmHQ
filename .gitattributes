@@ -1,0 +1,4 @@
+# Shell scripts run inside Linux containers (Docker init steps, etc.) -
+# core.autocrlf=true on Windows would otherwise convert these to CRLF on
+# checkout, which breaks them at runtime (stray \r on every line).
+*.sh text eol=lf

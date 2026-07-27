@@ -11,12 +11,28 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManagerFactory;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.KeyStore;
+import java.security.SecureRandom;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateFactory;
 import java.util.UUID;
 
 /**
  * Wires a single MQTT client to the broker so the application can prove
  * connectivity at startup. Subscribing to telemetry topics and persisting
  * messages is the MQTT listener's job (Sprint 4), not this skeleton's.
+ *
+ * TLS + per-client authentication (Sprint 11): mosquitto's self-signed dev
+ * CA (infra/mosquitto/setup/generate.sh) isn't in the JVM's default trust
+ * store, so a one-off SSLContext trusting just that CA is built here
+ * instead of requiring a full Java keystore file to be provisioned.
  */
 @Configuration
 @EnableConfigurationProperties(MqttProperties.class)
@@ -30,7 +46,7 @@ public class MqttConfig {
     // as the destroy method and call it before our own @PreDestroy disconnects,
     // which throws since close() requires the client to already be disconnected.
     @Bean(destroyMethod = "")
-    public MqttClient mqttClient(MqttProperties properties) throws MqttException {
+    public MqttClient mqttClient(MqttProperties properties) throws Exception {
         // Suffixed with a random id: the broker allows only one active
         // connection per client id, so a fixed id collides (and silently
         // kicks the other side) whenever more than one instance of this
@@ -42,9 +58,33 @@ public class MqttConfig {
         MqttConnectionOptions options = new MqttConnectionOptions();
         options.setAutomaticReconnect(true);
         options.setCleanStart(true);
+        options.setUserName(properties.username());
+        options.setPassword(properties.password().getBytes(StandardCharsets.UTF_8));
+        options.setSocketFactory(trustingOnly(properties.caCertPath()));
         client.connect(options);
         log.info("Connected to MQTT broker at {} as {}", properties.brokerUrl(), clientId);
         return client;
+    }
+
+    /** Also used by tests that need their own MQTT connection (e.g. to
+     * publish a message simulating a drone) against the same broker. */
+    public static SSLSocketFactory trustingOnly(String caCertPath) throws Exception {
+        CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
+        Certificate ca;
+        try (InputStream in = Files.newInputStream(Path.of(caCertPath))) {
+            ca = certificateFactory.generateCertificate(in);
+        }
+
+        KeyStore trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
+        trustStore.load(null, null);
+        trustStore.setCertificateEntry("swarmhq-dev-ca", ca);
+
+        TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        trustManagerFactory.init(trustStore);
+
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(null, trustManagerFactory.getTrustManagers(), new SecureRandom());
+        return sslContext.getSocketFactory();
     }
 
     @PreDestroy

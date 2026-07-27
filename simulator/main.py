@@ -1,6 +1,5 @@
 import json
 import logging
-import re
 import signal
 import time
 
@@ -10,8 +9,11 @@ from config import (
     BATTERY_DRAIN_PER_TICK,
     DRONE_COUNT,
     LOW_BATTERY_THRESHOLD,
+    MQTT_CA_CERT_PATH,
+    MQTT_DRONE_PASSWORD,
     MQTT_HOST,
     MQTT_PORT,
+    MQTT_USE_TLS,
     PUBLISH_INTERVAL_SECONDS,
     TICKS_PER_SEGMENT,
 )
@@ -22,8 +24,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("simulator")
 
 _running = True
-
-_MISSION_TOPIC_PATTERN = re.compile(r"^drones/([^/]+)/mission$")
 
 
 def _handle_shutdown(signum, _frame):
@@ -46,20 +46,11 @@ def _build_drones() -> list[Drone]:
     ]
 
 
-def _make_mission_assigned_handler(drones_by_id: dict[str, Drone]):
-    # Runs on the MQTT client's own network thread (client.loop_start()),
+def _make_mission_assigned_handler(drone: Drone):
+    # Runs on this drone's own MQTT client network thread (loop_start()),
     # not the main tick loop - Drone.start_mission() takes its own lock,
     # so this is safe to call concurrently with Drone.tick().
     def _on_mission_assigned(_client, _userdata, message):
-        match = _MISSION_TOPIC_PATTERN.match(message.topic)
-        if not match:
-            return
-        external_id = match.group(1)
-        drone = drones_by_id.get(external_id)
-        if drone is None:
-            log.warning("Mission assignment for unknown drone '%s'", external_id)
-            return
-
         try:
             payload = json.loads(message.payload)
             # Backend sends [lon,lat] pairs (GeoJSON/PostGIS order); the
@@ -68,14 +59,31 @@ def _make_mission_assigned_handler(drones_by_id: dict[str, Drone]):
             accepted = drone.start_mission(payload["missionId"], waypoints)
             if accepted:
                 log.info("%s accepted mission %s (%s priority, %d waypoints)",
-                         external_id, payload["missionId"], payload.get("priority"), len(waypoints))
+                         drone.external_id, payload["missionId"], payload.get("priority"), len(waypoints))
             else:
                 log.warning("%s rejected mission %s - not currently PATROLLING",
-                             external_id, payload["missionId"])
+                             drone.external_id, payload["missionId"])
         except Exception:
-            log.exception("Failed to process mission assignment for %s", external_id)
+            log.exception("Failed to process mission assignment for %s", drone.external_id)
 
     return _on_mission_assigned
+
+
+def _connect_drone_client(drone: Drone) -> mqtt.Client:
+    # One MQTT connection per drone, authenticated as its own identity
+    # (Sprint 11) - required for the broker's per-drone ACL patterns
+    # (drones/%u/...) to actually mean anything; a single shared
+    # connection for every drone would make "per-drone auth" hollow.
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, protocol=mqtt.MQTTv5, client_id=drone.external_id)
+    client.username_pw_set(drone.external_id, MQTT_DRONE_PASSWORD)
+    if MQTT_USE_TLS:
+        client.tls_set(ca_certs=MQTT_CA_CERT_PATH)
+    client.connect(MQTT_HOST, MQTT_PORT)
+    mission_topic = f"drones/{drone.external_id}/mission"
+    client.subscribe(mission_topic)
+    client.message_callback_add(mission_topic, _make_mission_assigned_handler(drone))
+    client.loop_start()
+    return client
 
 
 def main() -> None:
@@ -83,26 +91,23 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _handle_shutdown)
 
     drones = _build_drones()
-    drones_by_id = {drone.external_id: drone for drone in drones}
-
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, protocol=mqtt.MQTTv5)
-    client.connect(MQTT_HOST, MQTT_PORT)
-    client.subscribe("drones/+/mission")
-    client.message_callback_add("drones/+/mission", _make_mission_assigned_handler(drones_by_id))
-    client.loop_start()
-    log.info("Connected to %s:%s - simulating %d drone(s)", MQTT_HOST, MQTT_PORT, len(drones))
+    clients = {drone.external_id: _connect_drone_client(drone) for drone in drones}
+    log.info("Connected to %s:%s (TLS=%s) - simulating %d drone(s), each as its own identity",
+              MQTT_HOST, MQTT_PORT, MQTT_USE_TLS, len(drones))
 
     try:
         while _running:
             for drone in drones:
+                client = clients[drone.external_id]
                 mission_event = drone.tick()
                 client.publish(f"drones/{drone.external_id}/telemetry", json.dumps(drone.to_telemetry_payload()), qos=1)
                 if mission_event is not None:
                     client.publish(f"drones/{drone.external_id}/mission-status", json.dumps(mission_event), qos=1)
             time.sleep(PUBLISH_INTERVAL_SECONDS)
     finally:
-        client.loop_stop()
-        client.disconnect()
+        for client in clients.values():
+            client.loop_stop()
+            client.disconnect()
         log.info("Disconnected")
 
 

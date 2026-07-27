@@ -1,7 +1,7 @@
 # SwarmHQ
 
 <p align="center">
-  <img alt="STATUS" src="https://img.shields.io/badge/status-sprint%2010%20of%2014-informational?style=for-the-badge">
+  <img alt="STATUS" src="https://img.shields.io/badge/status-sprint%2011%20of%2014-informational?style=for-the-badge">
   <a href="HELP.md">
     <img alt="HELP" src="https://img.shields.io/badge/help-HELP.md-informational?style=for-the-badge">
   </a>
@@ -70,13 +70,12 @@ Full rationale for each choice in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
 
 ## Status
 
-**Sprint 10 of 14** — core MVP (sprints 1-9) is complete; now in the
-differentiation layers. Drones get real missions now: a scheduled
-constrained-assignment engine matches pending missions to the nearest
-eligible drone by real PostGIS distance and battery, pushes the
-assignment over MQTT, and the simulator actually flies the route,
-reporting back completion or failure - closing the "0 active missions,
-N/A success rate" gap the KPI dashboard shipped with in Sprint 9. See
+**Sprint 11 of 14** — MQTT is no longer an open channel: TLS (self-signed
+CA) plus per-drone authentication, where every simulated drone connects
+as its own identity and a broker-enforced ACL scopes each one to only its
+own topics. Verified for real, not just configured - tried impersonating
+another drone's telemetry with a stolen-looking credential and confirmed
+the broker silently drops it. See
 [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for the full sprint plan (core
 build + differentiation layers) and [HELP.md](HELP.md) for how to run it
 and known limitations.

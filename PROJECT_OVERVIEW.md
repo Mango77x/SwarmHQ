@@ -184,6 +184,73 @@ Implemented as of Sprint 4
     once the drone finishes or aborts the route):
     `{"missionId": 5, "status": "COMPLETED"}` or
     `{"missionId": 5, "status": "FAILED", "reason": "low_battery"}`.
+- **MQTT is QoS1 ("at least once") in both directions - listeners must be
+  idempotent, not just correct on a single delivery.** A message can be
+  legitimately redelivered by the broker if it doesn't get a timely PUBACK,
+  regardless of whether the actual bug is on the publisher or subscriber
+  side. `MissionStatusListener` learned this the hard way while testing
+  Sprint 11 (TLS's slower handshake made a redelivery race easy to hit
+  that plaintext rarely surfaced) - it now no-ops on a mission-status
+  report for a mission that isn't `ACTIVE` anymore, since `COMPLETED`/
+  `FAILED` are terminal and a repeat of either is a duplicate delivery,
+  not a new fact. `DroneTelemetryListener` doesn't need an equivalent
+  guard - reapplying the same telemetry reading twice is naturally a
+  no-op (it just upserts the same lat/lon/battery/status again).
+
+## MQTT security
+
+Implemented as of Sprint 11
+(`infra/mosquitto/setup/generate.sh`, `backend/src/main/java/com/swarmhq/config/MqttConfig.java`,
+`simulator/main.py`) - the first differentiation layer, replacing the
+anonymous plaintext channel every earlier sprint used:
+
+- **TLS**: a self-signed CA + server certificate, generated once by the
+  `mosquitto-setup` one-shot Compose service (idempotent - re-running
+  `docker compose up` never rotates existing certs/secrets) and never
+  committed (`infra/mosquitto/certs/` is gitignored). The server cert's
+  SAN covers both `mosquitto` (container-to-container, e.g. the backend
+  inside Docker) and `localhost`/`127.0.0.1` (host-side - a locally-run
+  backend/simulator/test suite via the host-mapped port) - a CN alone
+  isn't enough, modern TLS clients check the SAN list. The backend trusts
+  that CA by building a one-off `SSLContext` from the cert file
+  (`MqttConfig.trustingOnly`) rather than requiring a full Java keystore
+  to be provisioned; the simulator does the same via `paho`'s
+  `tls_set(ca_certs=...)`.
+- **Per-drone authentication**: every simulated drone connects as its own
+  MQTT identity (`drone-1`, `drone-2`, ...), not a single connection
+  shared across the whole fleet - required for the next point to mean
+  anything. All drones share one password (`MQTT_DRONE_PASSWORD` -
+  they're the same trust tier, a fleet of field units; genuinely distinct
+  per-unit secrets would need a provisioning workflow out of scope here),
+  while the backend gets its own separate identity/password
+  (`swarmhq-backend`/`MQTT_BACKEND_PASSWORD`). A fixed range of drone
+  identities is pre-provisioned (`MQTT_MAX_PROVISIONED_DRONES`, default
+  20, comfortably above `DRONE_COUNT`'s default of 4) rather than dynamic
+  self-enrollment - this is a demo fleet of a known rough size, not an
+  open registration system.
+- **ACLs** (`infra/mosquitto/config/acl.conf`): a `pattern` rule scopes
+  every drone identity to only its own topics
+  (`drones/%u/telemetry`/`mission-status` write, `drones/%u/mission`
+  read) - `%u` substitutes the authenticated username, so this is one
+  rule covering every drone rather than one block per drone, and it's
+  what makes per-drone auth actually mean something: a compromised
+  `drone-3` credential can publish fake telemetry for `drone-3`, but
+  gets denied (silently - MQTT ACL rejection has no error feedback to
+  the publisher, confirmed by testing it directly with `mosquitto_pub`)
+  if it tries to touch `drones/drone-7/telemetry`. The backend's own
+  identity gets a broader explicit grant (read every drone's
+  telemetry/mission-status, write every drone's mission topic), since it
+  legitimately needs fleet-wide access.
+- **Known limitation, left as-is**: Mosquitto 2.1.2 warns that the
+  password file and ACL file aren't owned by the `mosquitto` user and
+  logs "future versions will refuse to load this file." Bind-mounting a
+  Windows host directory into a Linux container doesn't support setting
+  real Unix ownership in a way that persists (`chown` inside the
+  container doesn't stick), so satisfying that check isn't achievable
+  here without a fundamentally different volume strategy (a named Docker
+  volume instead of a host bind mount) - out of scope for this sprint.
+  Purely cosmetic today (mosquitto 2.1.2 still loads the files fine); a
+  future Mosquitto major version enforcing it would need revisiting.
 
 ## Drone simulator
 
@@ -202,6 +269,12 @@ Implemented as of Sprint 5 (`simulator/`, Python, `paho-mqtt`):
   on a fixed interval (`PUBLISH_INTERVAL_SECONDS`, default 2s) matching the
   "MQTT contract" above exactly, so the Sprint 4 listener needed no changes
   to consume it.
+- **One MQTT connection per drone, each authenticated as its own identity
+  (Sprint 11, see "MQTT security" above)** - not one shared connection
+  publishing/subscribing for the whole fleet. Required for the broker's
+  per-drone ACL patterns to mean anything; a single shared connection
+  would make "per-drone authentication" hollow, since every drone's
+  traffic would carry the same credential.
 - **Flying an assigned mission (Sprint 10, `drones.py`'s `Drone.start_mission`)**:
   subscribing to its own `drones/{externalId}/mission` topic, a `PATROLLING`
   drone breaks off its fixed patrol loop to fly the assigned route instead
@@ -430,7 +503,7 @@ the differentiation layers.
 | # | Sprint | Deliverable |
 |---|---|---|
 | 10 | ✅ | Constrained mission assignment engine |
-| 11 |  | Security hardening: MQTT over TLS + per-drone auth |
+| 11 | ✅ | Security hardening: MQTT over TLS + per-drone auth |
 | 12 |  | Kalman filtering: simulated GPS noise + backend smoothing |
 | 13 |  | Network resilience: simulated signal loss/reconnect |
 | 14 |  | Swarm behavior: boids + auction-based assignment |
@@ -453,10 +526,14 @@ below still holds.
    having no creation UI since Sprint 8) and a live `/topic/missions`
    push (the KPI bar's existing 5s poll is enough for aggregate counts,
    per Sprint 9's own "polled, not pushed" reasoning).
-2. **Sprint 11 - Security hardening.** MQTT over TLS (self-signed certs)
-   with per-drone/unit authentication instead of an open channel. In
-   defense contexts, communications security is the central concern, not
-   an afterthought, and it's cheap relative to the other layers.
+2. **Sprint 11 - Security hardening.** ✅ Done - see "MQTT security" above
+   for the implementation (TLS, per-drone auth, ACLs actually verified to
+   block cross-drone impersonation, not just assumed to). In defense
+   contexts, communications security is the central concern, not an
+   afterthought, and it turned out cheap relative to the other layers -
+   the real cost of this sprint was debugging environment quirks (a
+   Windows-bind-mount file permission mismatch, a missing cert SAN, an
+   MQTT QoS1 redelivery race), not the security design itself.
 3. **Sprint 12 - Kalman filtering.** The simulator injects realistic GPS
    noise; the backend applies a Kalman filter to smooth trajectories
    before persisting/displaying them. The heaviest algorithmic piece -
