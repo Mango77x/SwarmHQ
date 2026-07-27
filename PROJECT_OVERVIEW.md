@@ -79,9 +79,11 @@ to cause real-world harm is in scope, ever.
 Implemented as of Sprint 3 (`backend/src/main/java/com/swarmhq/model`),
 schema owned by Flyway (`backend/src/main/resources/db/migration`):
 
-- **Drone**: id, type, position (`geometry(Point,4326)`, nullable until the
-  first telemetry arrives), battery percent, status (`PATROLLING` /
-  `ON_MISSION` / `RETURNING` / `SIGNAL_LOST`), last update timestamp.
+- **Drone**: id, external id (stable string used in MQTT topics and by the
+  simulator to identify a drone - see "MQTT contract" below), type, position
+  (`geometry(Point,4326)`, nullable until the first telemetry arrives),
+  battery percent, status (`PATROLLING` / `ON_MISSION` / `RETURNING` /
+  `SIGNAL_LOST`), last update timestamp.
 - **Mission**: id, route (`geometry(LineString,4326)`), an optional
   many-to-one assigned drone (kept single-drone for MVP simplicity - the
   "assign missions to multiple drones" case is deferred to the mission
@@ -93,6 +95,34 @@ schema owned by Flyway (`backend/src/main/resources/db/migration`):
   `SIGNAL_LOST` / `SIGNAL_RECOVERED` / `STATUS_CHANGE`), free-text detail,
   occurred-at timestamp. Same audit/movement-log pattern as MOLS.
 
+## MQTT contract
+
+Implemented as of Sprint 4
+(`backend/src/main/java/com/swarmhq/mqtt/DroneTelemetryListener.java`):
+
+- **Topic**: `drones/{externalId}/telemetry`, subscribed as the wildcard
+  `drones/+/telemetry`. `{externalId}` is the drone's stable string
+  identifier (assigned by whatever publishes telemetry - the simulator,
+  from Sprint 5 onward) and doubles as the upsert key: a telemetry message
+  for an unknown `externalId` creates a new `Drone` row, an existing one
+  just gets updated. There's no separate "register a drone" step.
+- **Payload** (JSON):
+  ```json
+  {
+    "type": "quadcopter",
+    "lat": 40.4168,
+    "lon": -3.7038,
+    "batteryPercent": 87,
+    "status": "PATROLLING",
+    "timestamp": "2026-07-27T13:00:00Z"
+  }
+  ```
+  `status` must match a `DroneStatus` enum value. `timestamp` is optional -
+  if omitted, the server-received time is used instead.
+- **Scope**: this listener only ingests and persists. It does not raise
+  alerts, detect signal loss, or apply any business rule - that's Sprint 8
+  (and the network-resilience differentiation layer) territory.
+
 ## Roadmap
 
 ### Core build (MVP, in order)
@@ -102,7 +132,7 @@ schema owned by Flyway (`backend/src/main/resources/db/migration`):
 | 1 | ✅ | Local infra: Docker Compose with Mosquitto + PostgreSQL/PostGIS |
 | 2 | ✅ | Spring Boot project skeleton (Web, Data JPA, WebSocket, Hibernate Spatial, MQTT client) |
 | 3 | ✅ | `Drone` / `Mission` / `Event` entities with PostGIS `Point` geometry |
-| 4 |  | MQTT listener persisting incoming telemetry (`drones/+/telemetry`) |
+| 4 | ✅ | MQTT listener persisting incoming telemetry (`drones/+/telemetry`) |
 | 5 |  | Basic simulator: 3-5 drones moving between waypoints over MQTT |
 | 6 |  | Static tactical map (MapLibre) via REST, last known position |
 | 7 |  | Live updates over WebSocket/STOMP |

@@ -20,6 +20,9 @@ public class Drone {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "external_id", nullable = false, length = 50, unique = true)
+    private String externalId;
+
     @Column(nullable = false, length = 50)
     private String type;
 
@@ -40,7 +43,8 @@ public class Drone {
         // JPA
     }
 
-    public Drone(String type, DroneStatus status, int batteryPercent) {
+    public Drone(String externalId, String type, DroneStatus status, int batteryPercent) {
+        this.externalId = externalId;
         this.type = type;
         this.status = status;
         this.batteryPercent = batteryPercent;
@@ -49,6 +53,10 @@ public class Drone {
 
     public Long getId() {
         return id;
+    }
+
+    public String getExternalId() {
+        return externalId;
     }
 
     public String getType() {

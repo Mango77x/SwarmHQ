@@ -32,7 +32,7 @@ class DroneRepositoryTests {
     void savesAndReloadsPositionAsPostgisPoint() {
         Point madridOffice = GEOMETRY_FACTORY.createPoint(new Coordinate(-3.7038, 40.4168));
 
-        Drone drone = new Drone("quadcopter", DroneStatus.PATROLLING, 87);
+        Drone drone = new Drone("drone-repository-test", "quadcopter", DroneStatus.PATROLLING, 87);
         drone.setPosition(madridOffice);
         Drone saved = droneRepository.saveAndFlush(drone);
 
