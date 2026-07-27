@@ -70,12 +70,11 @@ Full rationale for each choice in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
 
 ## Status
 
-**Sprint 11 of 14** — MQTT is no longer an open channel: TLS (self-signed
-CA) plus per-drone authentication, where every simulated drone connects
-as its own identity and a broker-enforced ACL scopes each one to only its
-own topics. Verified for real, not just configured - tried impersonating
-another drone's telemetry with a stolen-looking credential and confirmed
-the broker silently drops it. See
+**Sprint 12 of 14** — The simulator now injects realistic GPS noise into
+every published position, and the backend runs each drone's readings
+through its own Kalman filter before persisting or broadcasting them -
+only the smoothed estimate is ever stored or shown, the raw noisy reading
+is discarded after updating the filter. See
 [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for the full sprint plan (core
 build + differentiation layers) and [HELP.md](HELP.md) for how to run it
 and known limitations.

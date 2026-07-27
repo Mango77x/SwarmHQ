@@ -82,9 +82,20 @@ class AlertServiceTests {
     @Test
     void raisesEnteredAndExitedRiskZoneOnBoundaryCrossings() {
         telemetry(90, "PATROLLING", OUTSIDE_ZONE_LAT, OUTSIDE_ZONE_LON);
-        telemetry(90, "PATROLLING", IN_ZONE_LAT, IN_ZONE_LON); // enters
-        telemetry(90, "PATROLLING", IN_ZONE_LAT + 0.0001, IN_ZONE_LON); // still inside - no repeat
-        telemetry(90, "PATROLLING", OUTSIDE_ZONE_LAT, OUTSIDE_ZONE_LON); // exits
+        // Several readings at the same point, not one abrupt jump: since
+        // Sprint 12, the *persisted* (geofence-checked) position is the
+        // Kalman-smoothed estimate, which blends toward a new raw reading
+        // rather than snapping to it instantly - reusing the exact same
+        // point lets the estimate actually converge there before the
+        // zone-boundary assertion, without weakening what's being tested
+        // (still exactly one ENTERED and one EXITED for the whole
+        // approach-and-leave sequence).
+        for (int i = 0; i < 5; i++) {
+            telemetry(90, "PATROLLING", IN_ZONE_LAT, IN_ZONE_LON); // enters (once, on convergence)
+        }
+        for (int i = 0; i < 5; i++) {
+            telemetry(90, "PATROLLING", OUTSIDE_ZONE_LAT, OUTSIDE_ZONE_LON); // exits (once, on convergence)
+        }
 
         assertEquals(1, eventsOfType(EventType.ENTERED_RISK_ZONE).size());
         assertEquals(1, eventsOfType(EventType.EXITED_RISK_ZONE).size());

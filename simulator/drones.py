@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional, Tuple
 
+import numpy as np
+
 Waypoint = Tuple[float, float]
 
 
@@ -30,6 +32,7 @@ class Drone:
     ticks_per_segment: int
     battery_drain_per_tick: float
     low_battery_threshold: float
+    gps_noise_std_degrees: float = 0.0
 
     status: DroneStatus = field(init=False)
     battery_percent: float = field(init=False)
@@ -84,10 +87,16 @@ class Drone:
             return self._pending_mission_event
 
     def to_telemetry_payload(self) -> dict:
+        # Noise applied here only - self.lat/self.lon (the true simulated
+        # position driving route/mission progress) are never touched, same
+        # as a real drone's actual position vs. its noisy GPS reading of
+        # that position being two different things (Sprint 12).
+        noisy_lat = self.lat + np.random.normal(0.0, self.gps_noise_std_degrees)
+        noisy_lon = self.lon + np.random.normal(0.0, self.gps_noise_std_degrees)
         return {
             "type": self.type,
-            "lat": round(self.lat, 6),
-            "lon": round(self.lon, 6),
+            "lat": round(noisy_lat, 6),
+            "lon": round(noisy_lon, 6),
             "batteryPercent": round(self.battery_percent),
             "status": self.status.value,
             "timestamp": datetime.now(timezone.utc).isoformat(),

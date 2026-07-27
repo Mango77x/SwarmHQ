@@ -22,3 +22,14 @@ TICKS_PER_SEGMENT = int(os.environ.get("TICKS_PER_SEGMENT", "10"))
 
 BATTERY_DRAIN_PER_TICK = float(os.environ.get("BATTERY_DRAIN_PER_TICK", "0.5"))
 LOW_BATTERY_THRESHOLD = float(os.environ.get("LOW_BATTERY_THRESHOLD", "20"))
+
+# Sprint 12: injected into published telemetry only - the true simulated
+# position (route progress, waypoint/mission arrival) is never affected,
+# only what gets reported over MQTT, the same way a real drone's actual
+# position and its noisy GPS reading of that position are two different
+# things. 5m matches typical civilian GPS accuracy. Converted from meters
+# to degrees using a fixed ~111,320 m/degree - accurate enough at this
+# demo's small scale and roughly fixed latitude (Madrid), not meant to
+# hold globally.
+GPS_NOISE_STD_METERS = float(os.environ.get("GPS_NOISE_STD_METERS", "5.0"))
+GPS_NOISE_STD_DEGREES = GPS_NOISE_STD_METERS / 111_320.0
