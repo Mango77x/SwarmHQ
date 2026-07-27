@@ -89,7 +89,7 @@ to cause real-world harm is in scope, ever.
 | # | Sprint | Deliverable |
 |---|---|---|
 | 1 | ✅ | Local infra: Docker Compose with Mosquitto + PostgreSQL/PostGIS |
-| 2 |  | Spring Boot project skeleton (Web, Data JPA, WebSocket, Hibernate Spatial, MQTT client) |
+| 2 | ✅ | Spring Boot project skeleton (Web, Data JPA, WebSocket, Hibernate Spatial, MQTT client) |
 | 3 |  | `Drone` / `Mission` / `Event` entities with PostGIS `Point` geometry |
 | 4 |  | MQTT listener persisting incoming telemetry (`drones/+/telemetry`) |
 | 5 |  | Basic simulator: 3-5 drones moving between waypoints over MQTT |

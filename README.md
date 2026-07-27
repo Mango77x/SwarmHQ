@@ -1,7 +1,7 @@
 # SwarmHQ
 
 <p align="center">
-  <img alt="STATUS" src="https://img.shields.io/badge/status-sprint%201%20of%209-informational?style=for-the-badge">
+  <img alt="STATUS" src="https://img.shields.io/badge/status-sprint%202%20of%209-informational?style=for-the-badge">
   <a href="HELP.md">
     <img alt="HELP" src="https://img.shields.io/badge/help-HELP.md-informational?style=for-the-badge">
   </a>
@@ -70,8 +70,9 @@ Full rationale for each choice in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
 
 ## Status
 
-**Sprint 1 of 9** — local infrastructure only (Mosquitto + PostgreSQL/PostGIS
-via Docker Compose). No backend, simulator, or UI yet. See
+**Sprint 2 of 9** — local infra (Mosquitto + PostgreSQL/PostGIS) plus a bare
+Spring Boot skeleton that connects to both and exposes Actuator/WebSocket.
+No entities, MQTT listener, simulator, or UI yet. See
 [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for the full sprint plan and
 [HELP.md](HELP.md) for known limitations of the current sprint.
 
