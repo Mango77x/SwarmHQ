@@ -8,6 +8,7 @@ import paho.mqtt.client as mqtt
 from config import (
     BATTERY_DRAIN_PER_TICK,
     DRONE_COUNT,
+    GPS_NOISE_STD_DEGREES,
     LOW_BATTERY_THRESHOLD,
     MQTT_CA_CERT_PATH,
     MQTT_DRONE_PASSWORD,
@@ -41,6 +42,7 @@ def _build_drones() -> list[Drone]:
             ticks_per_segment=TICKS_PER_SEGMENT,
             battery_drain_per_tick=BATTERY_DRAIN_PER_TICK,
             low_battery_threshold=LOW_BATTERY_THRESHOLD,
+            gps_noise_std_degrees=GPS_NOISE_STD_DEGREES,
         )
         for index, route in enumerate(build_routes(DRONE_COUNT))
     ]

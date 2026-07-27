@@ -175,10 +175,10 @@ infra must already be up at least once before this will connect (see
 `MQTT_HOST`, `MQTT_PORT` (default `8883`), `MQTT_USE_TLS` (`false` to
 disable, not needed normally), `MQTT_CA_CERT_PATH`, `MQTT_DRONE_PASSWORD`,
 `DRONE_COUNT`, `PUBLISH_INTERVAL_SECONDS`, `TICKS_PER_SEGMENT`,
-`BATTERY_DRAIN_PER_TICK`, `LOW_BATTERY_THRESHOLD` (see `simulator/config.py`
-for defaults). `DRONE_COUNT` above `MQTT_MAX_PROVISIONED_DRONES` (see
-Environment variables below) will fail to authenticate - provision more
-identities first.
+`BATTERY_DRAIN_PER_TICK`, `LOW_BATTERY_THRESHOLD`, `GPS_NOISE_STD_METERS`
+(see `simulator/config.py` for defaults). `DRONE_COUNT` above
+`MQTT_MAX_PROVISIONED_DRONES` (see Environment variables below) will fail
+to authenticate - provision more identities first.
 
 ## Running the frontend
 

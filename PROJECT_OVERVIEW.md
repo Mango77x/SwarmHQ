@@ -252,6 +252,51 @@ anonymous plaintext channel every earlier sprint used:
   Purely cosmetic today (mosquitto 2.1.2 still loads the files fine); a
   future Mosquitto major version enforcing it would need revisiting.
 
+## Kalman filtering
+
+Implemented as of Sprint 12
+(`backend/src/main/java/com/swarmhq/service/KalmanFilter2D.java`,
+`backend/src/main/java/com/swarmhq/service/KalmanFilterService.java`,
+`simulator/drones.py`, `simulator/config.py`) - the third differentiation
+layer. A real drone's GPS reading is never its exact position; the
+simulator now injects that realism and the backend now compensates for it,
+demonstrating sensor fusion rather than "store what arrives."
+
+- **Simulator side**: each published telemetry reading has independent
+  Gaussian noise (`numpy.random.normal`, std dev `GPS_NOISE_STD_METERS`,
+  default 5m - typical civilian GPS accuracy) added to lat/lon separately.
+  Only the *published* reading is noisy - the drone's own internal route
+  progress, waypoint arrival, and mission logic all still use its true
+  simulated position, exactly like a real drone's flight computer knows
+  where it commanded itself to go even though its GPS receiver reports
+  something slightly different.
+- **Backend side**: `KalmanFilterService` keeps one `KalmanFilter2D`
+  instance per drone (`ConcurrentHashMap` keyed by `externalId`), created
+  lazily on that drone's first-ever reading. `KalmanFilter2D` is a
+  hand-rolled 4-state constant-velocity filter (`[lon, lat, vLon, vLat]`)
+  - small, fixed-size matrix math, so no linear-algebra dependency was
+  worth adding on the Java side (unlike the simulator, where `numpy` was
+  already the natural choice for noise generation). `DroneService.applyTelemetry`
+  runs every incoming reading through `KalmanFilterService.smooth()` before
+  anything else touches it.
+- **Deliberately transparent**: only the *smoothed* estimate is ever
+  persisted, broadcast over STOMP, or geofence-checked - the raw noisy
+  reading is used for exactly one thing (updating the filter) and then
+  discarded. This was a scope decision: the roadmap's own wording ("the
+  backend applies a Kalman filter to smooth trajectories before
+  persisting/displaying them") reads as full transparency, so there's no
+  raw-vs-filtered toggle, no second column, no frontend change - the
+  filter is invisible infrastructure, the same way a real ground station
+  never shows you the GPS chipset's unfiltered NMEA output.
+- **Side effect worth knowing about**: geofence entry/exit
+  (`AlertService.evaluateRiskZones`) now reacts to the filtered position,
+  which blends toward a new reading instead of snapping to it instantly.
+  A drone that jumps directly into a small risk zone in one raw tick won't
+  be recorded as "entered" until the filter's estimate actually converges
+  into the zone over a few ticks - correct behavior for a smoothing filter,
+  but worth remembering if a future zone is small relative to
+  `PUBLISH_INTERVAL_SECONDS` × patrol speed.
+
 ## Drone simulator
 
 Implemented as of Sprint 5 (`simulator/`, Python, `paho-mqtt`):
@@ -284,9 +329,12 @@ Implemented as of Sprint 5 (`simulator/`, Python, `paho-mqtt`):
   `Drone.tick()` (main loop thread) and `Drone.start_mission()` (MQTT
   client's own network thread, from `loop_start()`) mutate the same
   state, so each `Drone` instance guards both behind its own lock.
-- Deliberately out of scope for this sprint: GPS noise/Kalman filtering,
-  random signal loss, and swarm/auction coordination between drones - each
-  is its own later differentiation layer.
+- **Injects Gaussian GPS noise into every published reading (Sprint 12,
+  see "Kalman filtering" above)** - `GPS_NOISE_STD_METERS`, only affects
+  what's published over MQTT, never the drone's own internal route state.
+- Deliberately out of scope for this sprint: random signal loss and
+  swarm/auction coordination between drones - each is its own later
+  differentiation layer.
 
 ## Mission assignment
 
@@ -504,7 +552,7 @@ the differentiation layers.
 |---|---|---|
 | 10 | ✅ | Constrained mission assignment engine |
 | 11 | ✅ | Security hardening: MQTT over TLS + per-drone auth |
-| 12 |  | Kalman filtering: simulated GPS noise + backend smoothing |
+| 12 | ✅ | Kalman filtering: simulated GPS noise + backend smoothing |
 | 13 |  | Network resilience: simulated signal loss/reconnect |
 | 14 |  | Swarm behavior: boids + auction-based assignment |
 
@@ -534,9 +582,10 @@ below still holds.
    the real cost of this sprint was debugging environment quirks (a
    Windows-bind-mount file permission mismatch, a missing cert SAN, an
    MQTT QoS1 redelivery race), not the security design itself.
-3. **Sprint 12 - Kalman filtering.** The simulator injects realistic GPS
-   noise; the backend applies a Kalman filter to smooth trajectories
-   before persisting/displaying them. The heaviest algorithmic piece -
+3. **Sprint 12 - Kalman filtering.** ✅ Done - see "Kalman filtering" below
+   for the implementation. The simulator injects realistic GPS noise; the
+   backend applies a Kalman filter to smooth trajectories before
+   persisting/displaying them. The heaviest algorithmic piece -
    demonstrates sensor fusion, not just "store what arrives."
 4. **Sprint 13 - Network resilience.** The simulator can randomly drop a
    drone's connection; the system marks it `SIGNAL_LOST` (an existing

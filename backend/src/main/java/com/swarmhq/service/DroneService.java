@@ -31,11 +31,14 @@ public class DroneService {
 
     private final DroneRepository droneRepository;
     private final AlertService alertService;
+    private final KalmanFilterService kalmanFilterService;
     private final SimpMessagingTemplate messagingTemplate;
 
-    public DroneService(DroneRepository droneRepository, AlertService alertService, SimpMessagingTemplate messagingTemplate) {
+    public DroneService(DroneRepository droneRepository, AlertService alertService,
+            KalmanFilterService kalmanFilterService, SimpMessagingTemplate messagingTemplate) {
         this.droneRepository = droneRepository;
         this.alertService = alertService;
+        this.kalmanFilterService = kalmanFilterService;
         this.messagingTemplate = messagingTemplate;
     }
 
@@ -60,10 +63,16 @@ public class DroneService {
         Drone drone = existing
                 .orElseGet(() -> new Drone(externalId, payload.type(), DroneStatus.valueOf(payload.status()), payload.batteryPercent()));
 
-        drone.setPosition(GEOMETRY_FACTORY.createPoint(new Coordinate(payload.lon(), payload.lat())));
+        Instant timestamp = payload.timestamp() != null ? payload.timestamp() : Instant.now();
+        // Sprint 12: persist/broadcast/geofence-check the Kalman-smoothed
+        // estimate, not the raw (noisy, per the simulator's injected GPS
+        // error) measurement - "smooth before persisting/displaying", not
+        // smooth as a separate, optional step.
+        Coordinate smoothed = kalmanFilterService.smooth(externalId, payload.lon(), payload.lat(), timestamp);
+        drone.setPosition(GEOMETRY_FACTORY.createPoint(smoothed));
         drone.setBatteryPercent(payload.batteryPercent());
         drone.setStatus(DroneStatus.valueOf(payload.status()));
-        drone.setLastUpdateAt(payload.timestamp() != null ? payload.timestamp() : Instant.now());
+        drone.setLastUpdateAt(timestamp);
 
         droneRepository.save(drone);
         alertService.evaluate(drone, previousBatteryPercent, previousStatus, previousPosition);

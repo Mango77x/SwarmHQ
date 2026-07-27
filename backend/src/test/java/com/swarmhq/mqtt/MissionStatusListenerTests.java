@@ -128,7 +128,11 @@ class MissionStatusListenerTests {
     }
 
     private void publishStatus(Map<String, Object> payload) throws Exception {
-        publisher = TestMqttPublishers.connect("mission-status-test-publisher", drone.getExternalId());
+        // clientId unique per drone identity, not a shared literal string -
+        // cleanStart(true) already discards a same-clientId session's
+        // state on reconnect, but a distinct clientId per test removes
+        // any doubt about session continuity mattering here at all.
+        publisher = TestMqttPublishers.connect("mission-status-test-publisher-" + drone.getExternalId(), drone.getExternalId());
 
         MqttMessage message = new MqttMessage(objectMapper.writeValueAsBytes(payload));
         message.setQos(1);
