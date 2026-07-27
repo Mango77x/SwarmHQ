@@ -53,11 +53,23 @@ class MissionAssignmentServiceTests {
     private DroneRepository droneRepository;
 
     @BeforeEach
-    void sidelineOtherPendingMissions() {
+    void sidelineOtherPendingMissionsAndDrones() {
         missionRepository.findByStatusOrderByCreatedAtAsc(MissionStatus.PENDING).forEach(mission -> {
             mission.setStatus(MissionStatus.FAILED);
             missionRepository.save(mission);
         });
+        // Otherwise a real PATROLLING drone left over from manual/simulator
+        // testing (anywhere on Earth - findBestForMission has no maximum
+        // distance cutoff, it always returns the closest match if any
+        // exists) can satisfy a mission a test expects to stay unassigned.
+        // Runs before each test's own drones are created below, so it only
+        // ever touches pre-existing ones.
+        droneRepository.findAll().stream()
+                .filter(drone -> drone.getStatus() == DroneStatus.PATROLLING)
+                .forEach(drone -> {
+                    drone.setStatus(DroneStatus.RETURNING);
+                    droneRepository.save(drone);
+                });
     }
 
     @Test

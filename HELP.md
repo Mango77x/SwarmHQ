@@ -23,8 +23,17 @@ This starts:
 | Service | Port(s) | Notes |
 |---|---|---|
 | PostgreSQL/PostGIS | `5433` (host, from `.env`) | credentials in `.env`, gitignored; non-default port, see Troubleshooting |
-| Mosquitto (MQTT) | `1883` (MQTT), `9001` (MQTT over WebSocket) | anonymous access enabled for now, see below |
+| Mosquitto (MQTT) | `8883` (MQTT+TLS), `9001` (MQTT+TLS over WebSocket) | TLS + per-drone auth since Sprint 11, see "MQTT security" in PROJECT_OVERVIEW.md |
 | Backend | `8080` | see "Running the backend in Docker" below - optional, only starts if you ask for it |
+
+A one-shot `mosquitto-setup` service runs first (`depends_on`) and
+generates a self-signed CA/server certificate plus the MQTT password file
+(`infra/mosquitto/certs/`, `infra/mosquitto/config/passwd` - both
+gitignored) before `mosquitto` itself starts. Idempotent - re-running
+`docker compose up` never rotates existing certs/secrets, so a `.env`
+password change only takes effect after deleting
+`infra/mosquitto/config/passwd` (see Troubleshooting if `mosquitto`
+crash-loops after changing MQTT credentials).
 
 Stop with:
 
@@ -94,11 +103,19 @@ stack from the previous section must already be running.
 
 ### Publishing a test telemetry message by hand
 
-For one-off testing without starting the full simulator:
+For one-off testing without starting the full simulator. Since Sprint 11,
+this needs TLS + a provisioned identity - the ACL only lets an
+authenticated client publish to *its own* `drones/{username}/...` topics
+(see "MQTT security" in PROJECT_OVERVIEW.md), so the `-u` username below
+must match the topic's drone id exactly. Using `drone-1` here works out of
+the box (it's pre-provisioned) but will collide with a real simulator run
+also using that identity - fine for a quick one-off check, not while the
+simulator is actually running:
 
 ```bash
-docker exec swarmhq-mosquitto mosquitto_pub -h localhost \
-  -t drones/manual-test-1/telemetry \
+docker exec swarmhq-mosquitto mosquitto_pub -h localhost -p 8883 \
+  --cafile /mosquitto/certs/ca.crt -u drone-1 -P changeme \
+  -t drones/drone-1/telemetry \
   -m '{"type":"quadcopter","lat":40.4168,"lon":-3.7038,"batteryPercent":90,"status":"PATROLLING"}'
 ```
 
@@ -144,15 +161,24 @@ python -m venv .venv
 ```
 
 By default it simulates 4 drones (`drone-1`..`drone-4`), each patrolling a
-small fixed square route, publishing telemetry every 2 seconds. Battery
-drains while patrolling; once it drops to 20% the drone heads to base
-instead of continuing its loop, recharges to 100%, and resumes. Stop with
-Ctrl+C (handled gracefully via `SIGINT`).
+small fixed square route, publishing telemetry every 2 seconds - each
+drone opens its own MQTT connection, authenticated as its own identity
+(Sprint 11), not one shared connection for the whole fleet. Battery
+drains while patrolling (or flying an assigned mission); once it drops to
+20% the drone heads to base instead of continuing, recharges to 100%, and
+resumes. Stop with Ctrl+C (handled gracefully via `SIGINT`).
 
-Tunable via environment variables: `MQTT_HOST`, `MQTT_PORT`,
+Connects over TLS by default, trusting the CA `mosquitto-setup` generated
+(`../infra/mosquitto/certs/ca.crt`, relative to `simulator/`) - so the
+infra must already be up at least once before this will connect (see
+"Running the infrastructure"). Tunable via environment variables:
+`MQTT_HOST`, `MQTT_PORT` (default `8883`), `MQTT_USE_TLS` (`false` to
+disable, not needed normally), `MQTT_CA_CERT_PATH`, `MQTT_DRONE_PASSWORD`,
 `DRONE_COUNT`, `PUBLISH_INTERVAL_SECONDS`, `TICKS_PER_SEGMENT`,
 `BATTERY_DRAIN_PER_TICK`, `LOW_BATTERY_THRESHOLD` (see `simulator/config.py`
-for defaults).
+for defaults). `DRONE_COUNT` above `MQTT_MAX_PROVISIONED_DRONES` (see
+Environment variables below) will fail to authenticate - provision more
+identities first.
 
 ## Running the frontend
 
@@ -192,15 +218,14 @@ environment (your machine, CI, etc.) keeps its own values.
 | `POSTGRES_USER` | `swarmhq` | database user |
 | `POSTGRES_PASSWORD` | `changeme` | database password — change it, even locally |
 | `POSTGRES_PORT` | `5433` | host port mapped to Postgres |
-| `MQTT_PORT` | `1883` | host port mapped to Mosquitto MQTT |
-| `MQTT_WS_PORT` | `9001` | host port mapped to Mosquitto MQTT-over-WebSocket |
+| `MQTT_PORT` | `8883` | host port mapped to Mosquitto MQTT+TLS |
+| `MQTT_WS_PORT` | `9001` | host port mapped to Mosquitto MQTT+TLS-over-WebSocket |
+| `MQTT_BACKEND_PASSWORD` | `changeme` | the backend's own MQTT identity's password — change it, even locally |
+| `MQTT_DRONE_PASSWORD` | `changeme` | shared by every simulated drone identity (`drone-1`, `drone-2`, ...) — see "MQTT security" in PROJECT_OVERVIEW.md for why one shared password is an acceptable simplification here |
+| `MQTT_MAX_PROVISIONED_DRONES` | `20` | how many `drone-N` identities `mosquitto-setup` pre-provisions — raise this (and re-provision, see "Running the infrastructure") if running with `DRONE_COUNT` above 20 |
 
 ## Known limitations (tracked in the roadmap, not bugs)
 
-- **Mosquitto allows anonymous connections.** `infra/mosquitto/config/mosquitto.conf`
-  has `allow_anonymous true` — intentional for this early sprint, replaced by
-  TLS + per-client authentication in a later sprint (see
-  [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md), "Security hardening").
 - **`hibernate-spatial` pinned to `7.0.2.Final`** against a `hibernate-core`
   managed at `7.4.1.Final` by the Spring Boot 4.1 parent — spatial-specific
   releases tend to lag behind core. Confirmed working end-to-end as of
@@ -214,7 +239,7 @@ environment (your machine, CI, etc.) keeps its own values.
 
 ## Troubleshooting
 
-- **Port already in use** (5433 / 1883 / 9001): another local service (e.g.
+- **Port already in use** (5433 / 8883 / 9001): another local service (e.g.
   a native PostgreSQL or Mosquitto install) is likely bound to the same
   port. Either stop it or override the port via the corresponding `.env`
   variable. This is why Postgres defaults to host port `5433` rather than
@@ -354,3 +379,28 @@ environment (your machine, CI, etc.) keeps its own values.
   usually a credential mismatch between an existing volume and a changed
   `.env`. Recreate the volume with `docker compose down -v` if the data in
   it is disposable.
+- **`mosquitto` crash-loops (`docker compose ps` shows `Restarting`) right
+  after changing MQTT credentials or on first setup, logging
+  `password-file: Error: Unable to open pwfile "/mosquitto/config/passwd"`**:
+  `mosquitto_passwd` creates that file mode `0600` (owner-only), but the
+  broker runs as the unprivileged `mosquitto` user inside the container -
+  not whatever ran `mosquitto-setup` (root) - so it can't read its own
+  password file back. `generate.sh` already `chmod 644`s it after
+  generating; if you hit this anyway (e.g. after manually deleting/editing
+  `infra/mosquitto/config/passwd`), re-run
+  `docker compose up -d mosquitto-setup` then `docker compose restart mosquitto`.
+- **Backend/simulator/tests fail to connect to MQTT with
+  `SSLHandshakeException: No name matching <host> found`**: the server
+  certificate's SAN doesn't cover whatever hostname that client used to
+  connect (`mosquitto` from inside Docker vs. `localhost` from the host
+  side - see "MQTT security" in PROJECT_OVERVIEW.md). `generate.sh`
+  already requests SAN entries for both plus `127.0.0.1`; this only
+  happens if certs were generated by an older version of that script
+  before the SAN was added - delete `infra/mosquitto/certs/*` and
+  `docker compose up -d mosquitto-setup` to regenerate.
+- **An MQTT-consuming listener (`DroneTelemetryListener`,
+  `MissionStatusListener`) seems to process the exact same message
+  twice**: this is legitimate QoS1 ("at least once") redelivery, not a
+  bug in the publish path - see the "MQTT contract" note in
+  PROJECT_OVERVIEW.md on why listeners need to be idempotent, not just
+  correct for a single delivery.

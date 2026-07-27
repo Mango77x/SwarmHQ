@@ -4,8 +4,6 @@ import com.swarmhq.model.DroneStatus;
 import com.swarmhq.repository.DroneRepository;
 import org.awaitility.Awaitility;
 import org.eclipse.paho.mqttv5.client.MqttClient;
-import org.eclipse.paho.mqttv5.client.MqttConnectionOptions;
-import org.eclipse.paho.mqttv5.client.persist.MemoryPersistence;
 import org.eclipse.paho.mqttv5.common.MqttMessage;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +27,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @SpringBootTest
 class DroneTelemetryListenerTests {
 
-    private static final String EXTERNAL_ID = "telemetry-listener-test";
+    // Provisioned test-only MQTT identity (infra/mosquitto/setup/generate.sh)
+    // - not "drone-1" etc., which a real simulator run might be using
+    // concurrently, and the ACL's per-drone pattern requires this to match
+    // the authenticated username exactly.
+    private static final String EXTERNAL_ID = "test-drone-1";
 
     @Autowired
     private DroneRepository droneRepository;
@@ -49,8 +51,7 @@ class DroneTelemetryListenerTests {
 
     @Test
     void ingestsTelemetryPublishedOverMqtt() throws Exception {
-        publisher = new MqttClient("tcp://localhost:1883", "telemetry-test-publisher", new MemoryPersistence());
-        publisher.connect(new MqttConnectionOptions());
+        publisher = TestMqttPublishers.connect("telemetry-test-publisher", EXTERNAL_ID);
 
         Map<String, Object> payload = Map.of(
                 "type", "quadcopter",

@@ -12,8 +12,6 @@ import com.swarmhq.repository.EventRepository;
 import com.swarmhq.repository.MissionRepository;
 import org.awaitility.Awaitility;
 import org.eclipse.paho.mqttv5.client.MqttClient;
-import org.eclipse.paho.mqttv5.client.MqttConnectionOptions;
-import org.eclipse.paho.mqttv5.client.persist.MemoryPersistence;
 import org.eclipse.paho.mqttv5.common.MqttMessage;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -77,7 +75,7 @@ class MissionStatusListenerTests {
 
     @Test
     void marksMissionCompletedAndRaisesWaypointReachedEvent() throws Exception {
-        givenAnActiveMission();
+        givenAnActiveMission("test-drone-2");
         publishStatus(Map.of("missionId", mission.getId(), "status", "COMPLETED"));
 
         Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
@@ -93,7 +91,10 @@ class MissionStatusListenerTests {
 
     @Test
     void marksMissionFailedAndRaisesMissionFailedEvent() throws Exception {
-        givenAnActiveMission();
+        // A distinct identity from the COMPLETED test above, not a shared
+        // one - avoids any possibility of interference between the two
+        // (e.g. a QoS1 redelivery window overlapping) regardless of cause.
+        givenAnActiveMission("test-drone-3");
         publishStatus(Map.of("missionId", mission.getId(), "status", "FAILED", "reason", "low_battery"));
 
         Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
@@ -108,8 +109,12 @@ class MissionStatusListenerTests {
         assertTrue(events.get(0).getDetail().contains("low_battery"));
     }
 
-    private void givenAnActiveMission() {
-        drone = droneRepository.saveAndFlush(new Drone("mission-status-test-drone", "quadcopter", DroneStatus.ON_MISSION, 80));
+    private void givenAnActiveMission(String externalId) {
+        // Provisioned test-only MQTT identity (infra/mosquitto/setup/generate.sh),
+        // distinct from DroneTelemetryListenerTests's "test-drone-1" in case
+        // both ever run concurrently - and not "drone-1" etc., which a real
+        // simulator run might be using.
+        drone = droneRepository.saveAndFlush(new Drone(externalId, "quadcopter", DroneStatus.ON_MISSION, 80));
 
         Mission newMission = new Mission(
                 GEOMETRY_FACTORY.createLineString(new Coordinate[] {
@@ -123,8 +128,7 @@ class MissionStatusListenerTests {
     }
 
     private void publishStatus(Map<String, Object> payload) throws Exception {
-        publisher = new MqttClient("tcp://localhost:1883", "mission-status-test-publisher", new MemoryPersistence());
-        publisher.connect(new MqttConnectionOptions());
+        publisher = TestMqttPublishers.connect("mission-status-test-publisher", drone.getExternalId());
 
         MqttMessage message = new MqttMessage(objectMapper.writeValueAsBytes(payload));
         message.setQos(1);

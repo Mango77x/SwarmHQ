@@ -76,6 +76,17 @@ public class MissionStatusListener {
             log.warn("Ignoring status for unknown mission {} (reported by {})", payload.missionId(), externalId);
             return;
         }
+        // MQTT QoS1 is "at least once" - a redelivered duplicate (e.g. the
+        // publisher retransmitting because a PUBACK arrived slower than
+        // its retry timer, more likely now that the handshake is TLS) is
+        // expected, spec-compliant behavior, not a bug. COMPLETED/FAILED
+        // are terminal, so once a mission has already reached one, a
+        // repeat of the same report is a no-op instead of a second Event.
+        if (mission.getStatus() != MissionStatus.ACTIVE) {
+            log.debug("Ignoring mission status for {} - already {} (likely a QoS1 redelivery)",
+                    payload.missionId(), mission.getStatus());
+            return;
+        }
 
         switch (payload.status()) {
             case "COMPLETED" -> {
