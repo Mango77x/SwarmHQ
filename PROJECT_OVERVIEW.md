@@ -6,9 +6,8 @@ build plan. For a quick summary and how to run the stack, see
 
 ## Goal
 
-A fully simulated drone command-and-control (C2) system, conceptually
-inspired by real systems used in Ukraine (DELTA, Kropyva, Mission Control),
-built end-to-end with free/open-source tooling only. The system must:
+A fully simulated drone command-and-control (C2) system, built end-to-end
+with free/open-source tooling only. The system must:
 
 1. Simulate a fleet of drones executing missions (patrol, go-to-point, return
    to base).
@@ -18,11 +17,10 @@ built end-to-end with free/open-source tooling only. The system must:
    (**PostGIS**), supporting queries like "which drones are inside this
    zone" or "how far did this mission travel."
 4. Present everything on a live tactical web map ("Google Maps for the
-   military," in the style of DELTA), with automatic alerts (low battery,
-   drone out of zone, signal loss).
-5. Generate automatic mission reports/statistics, replacing what Mission
-   Control solves in the real world: no manual paperwork, centralized flight
-   data, visible success/failure rates.
+   military"), with automatic alerts (low battery, drone out of zone,
+   signal loss).
+5. Generate automatic mission reports/statistics: no manual paperwork,
+   centralized flight data, visible success/failure rates.
 
 Demonstrable result: *a miniature drone command-and-control system, sharing
 the same conceptual architecture as real electronic-warfare/drone systems,
@@ -116,8 +114,9 @@ to cause real-world harm is in scope, ever.
    into "a system that makes decisions."
 4. **Network resilience** — the simulator can randomly drop a drone's
    connection; the system marks it "signal lost," retains its last known
-   position, and reconnects automatically once it returns. Mirrors the real
-   problem Delta/Kropyva solve by working offline.
+   position, and reconnects automatically once it returns. Field systems
+   in this domain have to work offline-first; this replicates that
+   constraint.
 5. **Swarm behavior** — two complementary approaches:
    - **Boids (local coordination):** each simulated drone decides its
      movement from simple rules relative to its neighbors — separation,

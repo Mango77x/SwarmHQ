@@ -10,9 +10,8 @@
   </a>
 </p>
 
-SwarmHQ is a fully simulated drone command-and-control (C2) system,
-conceptually inspired by real battlefield tools used in Ukraine (DELTA,
-Kropyva, Mission Control), built as a software engineering portfolio project.
+SwarmHQ is a fully simulated drone command-and-control (C2) system, built as
+a software engineering portfolio project.
 
 **No real hardware. No real data. No targeting or weapons capability of any
 kind.** Every drone, mission, and telemetry stream is synthetic — the goal is
@@ -44,12 +43,10 @@ management domains.
 <summary>Resumen en español (🇪🇸)</summary>
 
 SwarmHQ es un sistema de mando y control (C2) de drones completamente
-simulado, sin hardware ni datos reales, inspirado conceptualmente en
-sistemas usados en Ucrania (DELTA, Kropyva, Mission Control). Es un proyecto
-de portfolio de ingeniería de software: mensajería IoT (MQTT), datos
-geoespaciales (PostGIS), tiempo real (WebSocket) y coordinación multi-agente
-(swarming). No implementa ni implementará capacidades reales de targeting o
-armamento.
+simulado, sin hardware ni datos reales. Es un proyecto de portfolio de
+ingeniería de software: mensajería IoT (MQTT), datos geoespaciales
+(PostGIS), tiempo real (WebSocket) y coordinación multi-agente (swarming).
+No implementa ni implementará capacidades reales de targeting o armamento.
 
 Para detalles técnicos y la hoja de ruta completa, consulta
 [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
