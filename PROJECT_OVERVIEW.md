@@ -172,21 +172,49 @@ Implemented as of Sprint 6:
   internal database id is never exposed, `externalId` is the public
   identifier throughout.
 
+## WebSocket contract
+
+Implemented as of Sprint 7
+(`backend/src/main/java/com/swarmhq/config/WebSocketConfig.java`,
+`DroneService.applyTelemetry`):
+
+- STOMP over SockJS at `/ws` (`registry.addEndpoint("/ws").withSockJS()`) -
+  SockJS gives a WebSocket-compatible connection with automatic fallback
+  transports, which the frontend's dev proxy and any intermediary in front
+  of the Docker deployment don't need special-casing for.
+- A single broadcast topic, `/topic/drones` (`DroneService.DRONE_UPDATES_TOPIC`):
+  every time `applyTelemetry` upserts a drone (called from
+  `DroneTelemetryListener`, i.e. once per MQTT telemetry message), it
+  publishes that drone's updated state - the same `DroneResponse` shape
+  `GET /api/drones` returns for one drone - to every subscriber. One shared
+  topic rather than per-drone destinations (`/topic/drones/{externalId}`)
+  is deliberate: the expected fleet size (single-digit to low-tens of
+  drones) doesn't need the fan-out savings a per-drone topic would give,
+  and clients upsert by `externalId` either way.
+- No `/app`-prefixed client-to-server destinations exist yet - drones only
+  broadcast telemetry they generate themselves; nothing today has a
+  server-side handler needed for a client to *send* something over this
+  connection.
+
 ## Frontend
 
-Implemented as of Sprint 6 (`frontend/`, React 19 + TypeScript + Vite +
-Tailwind 4 + `maplibre-gl`):
+Implemented as of Sprint 6/7 (`frontend/`, React 19 + TypeScript + Vite +
+Tailwind 4 + `maplibre-gl` + `@stomp/stompjs` + `sockjs-client`):
 
 - Single page for now: a header bar and a full-height `TacticalMap`
   component. `TacticalMap` renders a MapLibre map on OpenFreeMap's `dark`
-  style centered on the simulator's patrol area, polls `GET /api/drones`
-  every few seconds, and keeps one MapLibre `Marker` per drone in sync
-  (added/moved/removed), colored by status (green patrolling, blue on
+  style centered on the simulator's patrol area, and keeps one MapLibre
+  `Marker` per drone in sync, colored by status (green patrolling, blue on
   mission, amber returning, red signal lost).
-- Polling rather than the WebSocket push mentioned in the architecture
-  diagram is deliberate for this sprint - "via REST, last known position"
-  is exactly what the roadmap calls for here. Sprint 7 replaces/complements
-  it with real WebSocket-driven updates.
+- **Live updates (Sprint 7)**: `GET /api/drones` is now only called once,
+  on mount, for the baseline (drones that already reported before the page
+  loaded) - `frontend/src/api/liveDrones.ts` then opens a STOMP/SockJS
+  connection to `/ws` and subscribes to `/topic/drones`, upserting markers
+  as updates arrive instead of polling. A small "live"/"connecting…"
+  indicator (bottom-left) reflects the WebSocket connection state. Markers
+  are never removed on their own in this model - a drone that stops
+  reporting doesn't disappear, it should eventually show as `SIGNAL_LOST`
+  (Sprint 8), not vanish.
 - **Build/serve integration**: `frontend/` is a self-contained Vite
   project (its own `npm run dev`/`npm run build`, proxying `/api` to
   `localhost:8080` in dev). It is *not* part of the backend's default
@@ -220,7 +248,7 @@ Tailwind 4 + `maplibre-gl`):
 | 4 | ✅ | MQTT listener persisting incoming telemetry (`drones/+/telemetry`) |
 | 5 | ✅ | Basic simulator: 3-5 drones moving between waypoints over MQTT |
 | 6 | ✅ | Static tactical map (MapLibre) via REST, last known position |
-| 7 |  | Live updates over WebSocket/STOMP |
+| 7 | ✅ | Live updates over WebSocket/STOMP |
 | 8 |  | Business logic: battery/status alerts, geofenced risk zones |
 | 9 |  | KPI dashboard (active missions, success rate, recent alerts, critical battery) |
 

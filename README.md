@@ -1,7 +1,7 @@
 # SwarmHQ
 
 <p align="center">
-  <img alt="STATUS" src="https://img.shields.io/badge/status-sprint%206%20of%209-informational?style=for-the-badge">
+  <img alt="STATUS" src="https://img.shields.io/badge/status-sprint%207%20of%209-informational?style=for-the-badge">
   <a href="HELP.md">
     <img alt="HELP" src="https://img.shields.io/badge/help-HELP.md-informational?style=for-the-badge">
   </a>
@@ -70,9 +70,10 @@ Full rationale for each choice in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
 
 ## Status
 
-**Sprint 6 of 9** — there's now something to look at in a browser: a React
-+ MapLibre tactical map (`frontend/`) polling a new `GET /api/drones`
-endpoint, showing every drone's last known position and status. See
+**Sprint 7 of 9** — the tactical map (`frontend/`) now updates live: a
+STOMP/SockJS connection to `/ws` pushes each drone's telemetry the moment
+the backend ingests it over MQTT, instead of polling `GET /api/drones`
+(still used once, on load, for the initial snapshot). See
 [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for the full sprint plan and
 [HELP.md](HELP.md) for how to run it and known limitations.
 

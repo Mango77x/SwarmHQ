@@ -137,10 +137,10 @@ npm run dev
 ```
 
 Opens on `http://localhost:5173` with hot reload; its dev server proxies
-`/api/*` to `http://localhost:8080` (see `vite.config.ts`), so it expects
-the backend to already be running there. `npm run build` produces a
-production bundle in `frontend/dist/` on its own, without touching the
-backend.
+both `/api/*` and `/ws/*` (STOMP live updates, Sprint 7) to
+`http://localhost:8080` (see `vite.config.ts`), so it expects the backend
+to already be running there. `npm run build` produces a production bundle
+in `frontend/dist/` on its own, without touching the backend.
 
 To produce a single Spring Boot jar with the built frontend baked in
 (`static/app`, served at `/app`), from `backend/`:
@@ -272,6 +272,23 @@ environment (your machine, CI, etc.) keeps its own values.
   is wrong once the SPA is actually served from a subpath. Fixed by
   setting `base: '/app/'` in `vite.config.ts` - re-check this if the
   serving path ever changes.
+- **Blank page in the browser - `#root` is empty, no visible error, but the
+  page's own `<script>` tag returned 200 and the console shows nothing
+  wrong**: this is what a top-level `ReferenceError` inside a bundled ES
+  module looks like from the outside - the whole module (including the
+  `ReactDOM.createRoot(...).render(...)` call in `main.tsx`) aborts before
+  it can mount anything, and depending on how you're inspecting the page
+  the actual error can be easy to miss since it's an *uncaught module
+  evaluation* error, not one raised from application code. Hit this after
+  adding `sockjs-client` (Sprint 7's live-updates dependency): it
+  references the Node `global` object, which doesn't exist in a browser -
+  fixed by `define: { global: 'globalThis' }` in `vite.config.ts` (the
+  standard Vite fix for this exact library). If a similarly silent blank
+  page shows up again, don't trust "no console error" - confirm by
+  fetching the built bundle and dynamically `import()`-ing it a second
+  time in the browser console; a duplicate import re-throws the same
+  top-level error the original `<script type="module">` tag swallowed
+  from outside view.
 - **A test that publishes/consumes MQTT (or the Docker backend) behaves
   as if messages never arrive, with no error anywhere**: check whether
   two instances of the app are running at once (e.g. a local
