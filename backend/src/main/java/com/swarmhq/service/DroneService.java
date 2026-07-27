@@ -44,7 +44,7 @@ public class DroneService {
 
     public List<DroneResponse> listAll() {
         return droneRepository.findAll().stream()
-                .map(DroneService::toResponse)
+                .map(DroneResponse::from)
                 .toList();
     }
 
@@ -76,7 +76,7 @@ public class DroneService {
 
         droneRepository.save(drone);
         alertService.evaluate(drone, previousBatteryPercent, previousStatus, previousPosition);
-        messagingTemplate.convertAndSend(DRONE_UPDATES_TOPIC, toResponse(drone));
+        messagingTemplate.convertAndSend(DRONE_UPDATES_TOPIC, DroneResponse.from(drone));
     }
 
     /**
@@ -98,20 +98,6 @@ public class DroneService {
         drone.setStatus(DroneStatus.ON_MISSION);
         droneRepository.save(drone);
         alertService.evaluate(drone, drone.getBatteryPercent(), previousStatus, drone.getPosition());
-        messagingTemplate.convertAndSend(DRONE_UPDATES_TOPIC, toResponse(drone));
-    }
-
-    private static DroneResponse toResponse(Drone drone) {
-        Point position = drone.getPosition();
-        Double lat = position != null ? position.getY() : null;
-        Double lon = position != null ? position.getX() : null;
-        return new DroneResponse(
-                drone.getExternalId(),
-                drone.getType(),
-                lat,
-                lon,
-                drone.getBatteryPercent(),
-                drone.getStatus(),
-                drone.getLastUpdateAt());
+        messagingTemplate.convertAndSend(DRONE_UPDATES_TOPIC, DroneResponse.from(drone));
     }
 }

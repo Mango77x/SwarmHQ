@@ -16,6 +16,9 @@ from config import (
     MQTT_PORT,
     MQTT_USE_TLS,
     PUBLISH_INTERVAL_SECONDS,
+    SIGNAL_LOSS_CHANCE_PER_TICK,
+    SIGNAL_LOSS_MAX_TICKS,
+    SIGNAL_LOSS_MIN_TICKS,
     TICKS_PER_SEGMENT,
 )
 from drones import Drone
@@ -43,6 +46,9 @@ def _build_drones() -> list[Drone]:
             battery_drain_per_tick=BATTERY_DRAIN_PER_TICK,
             low_battery_threshold=LOW_BATTERY_THRESHOLD,
             gps_noise_std_degrees=GPS_NOISE_STD_DEGREES,
+            signal_loss_chance_per_tick=SIGNAL_LOSS_CHANCE_PER_TICK,
+            signal_loss_min_ticks=SIGNAL_LOSS_MIN_TICKS,
+            signal_loss_max_ticks=SIGNAL_LOSS_MAX_TICKS,
         )
         for index, route in enumerate(build_routes(DRONE_COUNT))
     ]
@@ -94,6 +100,12 @@ def main() -> None:
 
     drones = _build_drones()
     clients = {drone.external_id: _connect_drone_client(drone) for drone in drones}
+    # Mission events that occur while a drone is signal_lost (Sprint 13) -
+    # like telemetry, they can't get through a dropped connection either,
+    # so they're held here and flushed together the moment it's back,
+    # rather than silently lost (which would strand a mission ACTIVE
+    # forever with no completion/failure ever reported).
+    pending_mission_events: dict[str, list] = {drone.external_id: [] for drone in drones}
     log.info("Connected to %s:%s (TLS=%s) - simulating %d drone(s), each as its own identity",
               MQTT_HOST, MQTT_PORT, MQTT_USE_TLS, len(drones))
 
@@ -102,9 +114,15 @@ def main() -> None:
             for drone in drones:
                 client = clients[drone.external_id]
                 mission_event = drone.tick()
-                client.publish(f"drones/{drone.external_id}/telemetry", json.dumps(drone.to_telemetry_payload()), qos=1)
                 if mission_event is not None:
-                    client.publish(f"drones/{drone.external_id}/mission-status", json.dumps(mission_event), qos=1)
+                    pending_mission_events[drone.external_id].append(mission_event)
+                if drone.signal_lost:
+                    continue
+                client.publish(f"drones/{drone.external_id}/telemetry", json.dumps(drone.to_telemetry_payload()), qos=1)
+                queued = pending_mission_events[drone.external_id]
+                for event in queued:
+                    client.publish(f"drones/{drone.external_id}/mission-status", json.dumps(event), qos=1)
+                queued.clear()
             time.sleep(PUBLISH_INTERVAL_SECONDS)
     finally:
         for client in clients.values():

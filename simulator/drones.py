@@ -33,6 +33,9 @@ class Drone:
     battery_drain_per_tick: float
     low_battery_threshold: float
     gps_noise_std_degrees: float = 0.0
+    signal_loss_chance_per_tick: float = 0.0
+    signal_loss_min_ticks: int = 0
+    signal_loss_max_ticks: int = 0
 
     status: DroneStatus = field(init=False)
     battery_percent: float = field(init=False)
@@ -45,6 +48,7 @@ class Drone:
     _mission_route: Optional[List[Waypoint]] = field(init=False)
     _patrol_target_index: int = field(init=False)
     _pending_mission_event: Optional[dict] = field(init=False)
+    _signal_lost_ticks_remaining: int = field(init=False)
 
     def __post_init__(self) -> None:
         self.status = DroneStatus.PATROLLING
@@ -57,10 +61,18 @@ class Drone:
         self._mission_route = None
         self._patrol_target_index = self._target_index
         self._pending_mission_event = None
+        self._signal_lost_ticks_remaining = 0
         # tick() runs on the main loop thread; start_mission() is called
         # from the MQTT client's own network thread (loop_start()) - both
         # mutate the same state, so they're serialized here.
         self._lock = threading.Lock()
+
+    @property
+    def signal_lost(self) -> bool:
+        """True while simulating a dropped connection (Sprint 13) - the
+        drone still flies/ticks normally, main.py just skips publishing
+        for it until this clears."""
+        return self._signal_lost_ticks_remaining > 0
 
     def start_mission(self, mission_id: int, waypoints: List[Waypoint]) -> bool:
         """Interrupts patrolling to fly an assigned mission route. Returns
@@ -84,6 +96,7 @@ class Drone:
             self._pending_mission_event = None
             self._drain_battery_if_active()
             self._advance_towards_target()
+            self._update_signal_loss()
             return self._pending_mission_event
 
     def to_telemetry_payload(self) -> dict:
@@ -104,6 +117,14 @@ class Drone:
 
     def _active_route(self) -> List[Waypoint]:
         return self._mission_route if self.status is DroneStatus.ON_MISSION else self.route
+
+    def _update_signal_loss(self) -> None:
+        if self._signal_lost_ticks_remaining > 0:
+            self._signal_lost_ticks_remaining -= 1
+            return
+        if self.signal_loss_chance_per_tick > 0 and np.random.random() < self.signal_loss_chance_per_tick:
+            self._signal_lost_ticks_remaining = int(
+                np.random.randint(self.signal_loss_min_ticks, self.signal_loss_max_ticks + 1))
 
     def _drain_battery_if_active(self) -> None:
         if self.status not in (DroneStatus.PATROLLING, DroneStatus.ON_MISSION):

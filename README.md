@@ -70,11 +70,12 @@ Full rationale for each choice in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
 
 ## Status
 
-**Sprint 12 of 14** — The simulator now injects realistic GPS noise into
-every published position, and the backend runs each drone's readings
-through its own Kalman filter before persisting or broadcasting them -
-only the smoothed estimate is ever stored or shown, the raw noisy reading
-is discarded after updating the filter. See
+**Sprint 13 of 14** — The simulator can now randomly drop a drone's
+connection for a while (it keeps flying, it just stops reporting in), and
+the backend's own watchdog marks it `SIGNAL_LOST` after the telemetry goes
+quiet, retaining its last known position instead of guessing. The moment
+real telemetry resumes, it's marked `SIGNAL_RECOVERED` automatically - no
+manual reconnect step. See
 [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for the full sprint plan (core
 build + differentiation layers) and [HELP.md](HELP.md) for how to run it
 and known limitations.

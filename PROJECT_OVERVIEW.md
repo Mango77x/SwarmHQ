@@ -297,6 +297,52 @@ demonstrating sensor fusion rather than "store what arrives."
   but worth remembering if a future zone is small relative to
   `PUBLISH_INTERVAL_SECONDS` × patrol speed.
 
+## Network resilience
+
+Implemented as of Sprint 13
+(`backend/src/main/java/com/swarmhq/service/SignalMonitorService.java`,
+`simulator/drones.py`, `simulator/config.py`) - the fourth differentiation
+layer. Field systems in this domain have to work offline-first; this
+replicates the "a unit drops off the network mid-mission and comes back
+later" constraint instead of assuming every drone is always reachable.
+
+- **Simulator side**: each drone has an independent per-tick chance
+  (`SIGNAL_LOSS_CHANCE_PER_TICK`, default 0.01) of losing its connection
+  for a random duration (`SIGNAL_LOSS_MIN_TICKS`/`SIGNAL_LOSS_MAX_TICKS`,
+  default 5-15 ticks, i.e. 10-30s at the default publish interval). While
+  "out of contact" the drone keeps flying, draining battery, and finishing
+  missions exactly as normal - only publishing stops, the same way a real
+  drone's flight computer doesn't pause just because its radio link to the
+  ground station drops. Any mission-status event that would have been
+  reported during the outage is queued in `main.py` and flushed once the
+  connection is back, rather than silently lost (which would otherwise
+  strand a mission `ACTIVE` forever with no completion/failure ever
+  reported).
+- **Backend side**: `SignalMonitorService` is a `@Scheduled` watchdog (the
+  mirror image of `MissionAssignmentService`'s scheduled pass - reacting to
+  messages that *stopped* arriving instead of ones that did). Every 5s it
+  marks any drone whose `lastUpdateAt` is older than
+  `swarmhq.signal-monitor.timeout-seconds` (default 15) as `SIGNAL_LOST`
+  (an existing `DroneStatus`/`EventType` pair from Sprint 3, unused until
+  now) and raises a `SIGNAL_LOST` event. Its last known position is left
+  untouched - "lost signal" means exactly that, the last thing heard from
+  it is still the best guess of where it is.
+- **Recovery needs no watchdog counterpart**: the moment a `SIGNAL_LOST`
+  drone's telemetry reaches `DroneService.applyTelemetry` again,
+  `AlertService.evaluate` sees `previousStatus == SIGNAL_LOST` and the
+  current status something else, and raises `SIGNAL_RECOVERED` for free -
+  the same "ordinary telemetry does the work" pattern Sprint 10 already
+  established for a mission ending and a drone resuming patrol.
+- **`SIGNAL_LOST` drones are automatically excluded from new mission
+  assignment** - no code change was needed for this:
+  `DroneRepository.findBestForMission` already filters `status = 'PATROLLING'`
+  (Sprint 10), so a drone the backend can't currently reach was never a
+  candidate to begin with.
+- Both the frontend's status-color map (`TacticalMap.tsx`) and the
+  `EventType` union it renders already had `SIGNAL_LOST`/`SIGNAL_RECOVERED`
+  wired in from earlier sprints (scaffolded ahead of this one) - so this
+  sprint needed zero frontend changes, same as Sprint 12.
+
 ## Drone simulator
 
 Implemented as of Sprint 5 (`simulator/`, Python, `paho-mqtt`):
@@ -332,9 +378,12 @@ Implemented as of Sprint 5 (`simulator/`, Python, `paho-mqtt`):
 - **Injects Gaussian GPS noise into every published reading (Sprint 12,
   see "Kalman filtering" above)** - `GPS_NOISE_STD_METERS`, only affects
   what's published over MQTT, never the drone's own internal route state.
-- Deliberately out of scope for this sprint: random signal loss and
-  swarm/auction coordination between drones - each is its own later
-  differentiation layer.
+- **Randomly drops its own connection (Sprint 13, see "Network resilience"
+  above)** - `SIGNAL_LOSS_CHANCE_PER_TICK`/`_MIN_TICKS`/`_MAX_TICKS`, only
+  suppresses publishing (telemetry and any queued mission-status), never
+  the drone's own internal route/mission/battery state.
+- Deliberately out of scope for this sprint: swarm/auction coordination
+  between drones - its own later differentiation layer.
 
 ## Mission assignment
 
@@ -553,7 +602,7 @@ the differentiation layers.
 | 10 | ✅ | Constrained mission assignment engine |
 | 11 | ✅ | Security hardening: MQTT over TLS + per-drone auth |
 | 12 | ✅ | Kalman filtering: simulated GPS noise + backend smoothing |
-| 13 |  | Network resilience: simulated signal loss/reconnect |
+| 13 | ✅ | Network resilience: simulated signal loss/reconnect |
 | 14 |  | Swarm behavior: boids + auction-based assignment |
 
 Re-sequenced from the original priority order (security first) agreed
@@ -587,8 +636,9 @@ below still holds.
    backend applies a Kalman filter to smooth trajectories before
    persisting/displaying them. The heaviest algorithmic piece -
    demonstrates sensor fusion, not just "store what arrives."
-4. **Sprint 13 - Network resilience.** The simulator can randomly drop a
-   drone's connection; the system marks it `SIGNAL_LOST` (an existing
+4. **Sprint 13 - Network resilience.** ✅ Done - see "Network resilience"
+   above for the implementation. The simulator can randomly drop a drone's
+   connection; the system marks it `SIGNAL_LOST` (an existing
    `DroneStatus`/`EventType` value, unused until now), retains its last
    known position, and reconnects automatically (`SIGNAL_RECOVERED`) once
    it returns. Field systems in this domain have to work offline-first;
