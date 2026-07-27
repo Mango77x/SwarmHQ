@@ -7,6 +7,7 @@ Local setup and troubleshooting notes. For architecture and roadmap, see
 
 - Docker + Docker Compose
 - JDK 21+ (the Maven wrapper handles Maven itself — no local Maven install needed)
+- Python 3.11+ (for the simulator)
 
 ## Running the infrastructure (Sprint 1)
 
@@ -59,8 +60,7 @@ stack from the previous section must already be running.
 
 ### Publishing a test telemetry message by hand
 
-With no simulator yet (Sprint 5), you can still exercise the listener
-directly against Mosquitto:
+For one-off testing without starting the full simulator:
 
 ```bash
 docker exec swarmhq-mosquitto mosquitto_pub -h localhost \
@@ -69,6 +69,29 @@ docker exec swarmhq-mosquitto mosquitto_pub -h localhost \
 ```
 
 Then check it landed: `docker exec swarmhq-postgis psql -U swarmhq -d swarmhq -c "SELECT external_id, battery_percent, status FROM drones;"`
+
+## Running the simulator
+
+With the infrastructure up (and, if you want persisted data, the backend
+running too), from `simulator/`:
+
+```bash
+python -m venv .venv
+./.venv/Scripts/python.exe -m pip install -r requirements.txt   # Windows
+# .venv/bin/python -m pip install -r requirements.txt           # macOS/Linux
+./.venv/Scripts/python.exe main.py
+```
+
+By default it simulates 4 drones (`drone-1`..`drone-4`), each patrolling a
+small fixed square route, publishing telemetry every 2 seconds. Battery
+drains while patrolling; once it drops to 20% the drone heads to base
+instead of continuing its loop, recharges to 100%, and resumes. Stop with
+Ctrl+C (handled gracefully via `SIGINT`).
+
+Tunable via environment variables: `MQTT_HOST`, `MQTT_PORT`,
+`DRONE_COUNT`, `PUBLISH_INTERVAL_SECONDS`, `TICKS_PER_SEGMENT`,
+`BATTERY_DRAIN_PER_TICK`, `LOW_BATTERY_THRESHOLD` (see `simulator/config.py`
+for defaults).
 
 ## Environment variables
 
@@ -123,7 +146,14 @@ environment (your machine, CI, etc.) keeps its own values.
   `./mvnw test` still works despite this, since the default `@SpringBootTest`
   web environment is mocked and never binds a real socket. Workarounds to
   try: temporarily disable the security software's network filtering, or
-  run from a machine/profile without it.
+  run from a machine/profile without it. To manually verify MQTT
+  ingestion end-to-end (e.g. against the simulator) on an affected
+  machine without hitting this bug at all, run the backend with the
+  embedded web server disabled - everything except the HTTP/WebSocket
+  layer still starts normally:
+  ```bash
+  ./mvnw spring-boot:run -Dspring-boot.run.arguments=--spring.main.web-application-type=none
+  ```
 - **Hibernate fails at startup with `SchemaManagementException: Schema
   validation: missing table [...]`, and nothing in the log mentions
   Flyway at all**: Spring Boot 4 split Flyway autoconfiguration into its

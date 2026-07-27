@@ -8,6 +8,12 @@ build/
 *.class
 *.jar
 
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
 # IDE
 .idea/
 *.iml

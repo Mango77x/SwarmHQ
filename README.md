@@ -1,7 +1,7 @@
 # SwarmHQ
 
 <p align="center">
-  <img alt="STATUS" src="https://img.shields.io/badge/status-sprint%204%20of%209-informational?style=for-the-badge">
+  <img alt="STATUS" src="https://img.shields.io/badge/status-sprint%205%20of%209-informational?style=for-the-badge">
   <a href="HELP.md">
     <img alt="HELP" src="https://img.shields.io/badge/help-HELP.md-informational?style=for-the-badge">
   </a>
@@ -60,6 +60,7 @@ Para detalles técnicos y la hoja de ruta completa, consulta
 - Java + Spring Boot (Spring Web, Spring Data JPA, Spring WebSocket/STOMP)
 - PostgreSQL + PostGIS, Hibernate Spatial
 - Eclipse Mosquitto (MQTT broker)
+- Python + paho-mqtt (drone simulator)
 - MapLibre GL JS (tactical map)
 - Thymeleaf + Bootstrap 5.3 (admin panels)
 - Docker + Docker Compose
@@ -70,12 +71,11 @@ Full rationale for each choice in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
 
 ## Status
 
-**Sprint 4 of 9** — an MQTT listener now ingests drone telemetry
-(`drones/{externalId}/telemetry`) and upserts `Drone` rows in real time.
-No simulator or UI yet, so there's nothing publishing telemetry on its own
-- see [HELP.md](HELP.md) for how to publish a test message by hand. See
-[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for the full sprint plan and
-[HELP.md](HELP.md) for known limitations of the current sprint.
+**Sprint 5 of 9** — a Python simulator (`simulator/`) now patrols a handful
+of drones over fixed routes, draining battery and returning to base, and
+publishes real telemetry that the backend ingests end to end. No web UI
+yet. See [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for the full sprint
+plan and [HELP.md](HELP.md) for how to run it and known limitations.
 
 ---
 

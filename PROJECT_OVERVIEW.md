@@ -52,7 +52,7 @@ to cause real-world harm is in scope, ever.
 
 | Layer | Technology | Role |
 |---|---|---|
-| Drone simulator | Java or Python (TBD) | Standalone process impersonating N drones moving between waypoints and publishing synthetic telemetry; the only piece standing in for real hardware |
+| Drone simulator | Python + `paho-mqtt` | Standalone process impersonating N drones moving between waypoints and publishing synthetic telemetry; the only piece standing in for real hardware. Python over Java: it's the ecosystem's de facto choice for lightweight IoT/telemetry simulators, and sets up GPS-noise/Kalman-filter work (a later differentiation layer) with `numpy` instead of hand-rolled math. |
 | Message broker | Eclipse Mosquitto (MQTT) | Each simulated drone publishes telemetry to a topic; the backend subscribes. Real IoT/drone protocol, not simplified. |
 | Backend | Java + Spring Boot | Subscribes to MQTT, processes telemetry, persists to the database, applies business logic (mission failure, low battery), exposes REST + WebSocket |
 | Persistence | Spring Data JPA + Hibernate Spatial | ORM with geometry type support for PostGIS |
@@ -123,6 +123,29 @@ Implemented as of Sprint 4
   alerts, detect signal loss, or apply any business rule - that's Sprint 8
   (and the network-resilience differentiation layer) territory.
 
+## Drone simulator
+
+Implemented as of Sprint 5 (`simulator/`, Python, `paho-mqtt`):
+
+- Each simulated drone (`DRONE_COUNT`, default 4) patrols a fixed square
+  waypoint loop, offset diagonally per drone so routes don't overlap
+  (`routes.py`). Index 0 of a route is that drone's base.
+- Battery drains once per publish tick while patrolling
+  (`BATTERY_DRAIN_PER_TICK`); once it hits `LOW_BATTERY_THRESHOLD` the
+  drone breaks off its patrol loop, heads straight to base instead
+  (`status` becomes `RETURNING`), recharges to 100% on arrival, and resumes
+  patrolling - the same patrol/go-to-point/return-to-base behavior the
+  original spec calls for, driven entirely by the simulator itself with no
+  backend involvement (no `Mission` is created or read here - that's the
+  centralized assignment engine, a later differentiation layer).
+- Publishes to `drones/{externalId}/telemetry` (`drone-1`, `drone-2`, ...)
+  on a fixed interval (`PUBLISH_INTERVAL_SECONDS`, default 2s) matching the
+  "MQTT contract" above exactly, so the Sprint 4 listener needed no changes
+  to consume it.
+- Deliberately out of scope for this sprint: GPS noise/Kalman filtering,
+  random signal loss, and swarm/auction coordination between drones - each
+  is its own later differentiation layer.
+
 ## Roadmap
 
 ### Core build (MVP, in order)
@@ -133,7 +156,7 @@ Implemented as of Sprint 4
 | 2 | ✅ | Spring Boot project skeleton (Web, Data JPA, WebSocket, Hibernate Spatial, MQTT client) |
 | 3 | ✅ | `Drone` / `Mission` / `Event` entities with PostGIS `Point` geometry |
 | 4 | ✅ | MQTT listener persisting incoming telemetry (`drones/+/telemetry`) |
-| 5 |  | Basic simulator: 3-5 drones moving between waypoints over MQTT |
+| 5 | ✅ | Basic simulator: 3-5 drones moving between waypoints over MQTT |
 | 6 |  | Static tactical map (MapLibre) via REST, last known position |
 | 7 |  | Live updates over WebSocket/STOMP |
 | 8 |  | Business logic: battery/status alerts, geofenced risk zones |
