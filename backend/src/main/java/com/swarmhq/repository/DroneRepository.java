@@ -1,11 +1,14 @@
 package com.swarmhq.repository;
 
 import com.swarmhq.model.Drone;
+import com.swarmhq.model.DroneStatus;
 import org.locationtech.jts.geom.Point;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 public interface DroneRepository extends JpaRepository<Drone, Long> {
@@ -13,6 +16,12 @@ public interface DroneRepository extends JpaRepository<Drone, Long> {
     Optional<Drone> findByExternalId(String externalId);
 
     long countByBatteryPercentLessThanEqual(int threshold);
+
+    // SignalMonitorService's watchdog (Sprint 13): every drone whose
+    // telemetry has gone quiet for longer than the timeout, excluding ones
+    // already marked SIGNAL_LOST (nothing to re-detect there until they
+    // recover, which happens for free the next time real telemetry arrives).
+    List<Drone> findByStatusNotAndLastUpdateAtBefore(DroneStatus status, Instant threshold);
 
     // MissionAssignmentService's greedy pick: nearest, fullest-battery
     // eligible drone. ::geography casts give real meters out of

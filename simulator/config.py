@@ -33,3 +33,17 @@ LOW_BATTERY_THRESHOLD = float(os.environ.get("LOW_BATTERY_THRESHOLD", "20"))
 # hold globally.
 GPS_NOISE_STD_METERS = float(os.environ.get("GPS_NOISE_STD_METERS", "5.0"))
 GPS_NOISE_STD_DEGREES = GPS_NOISE_STD_METERS / 111_320.0
+
+# Sprint 13: simulates a dropped radio connection, not a dropped GPS fix -
+# unlike GPS noise, this suppresses publishing entirely for a while rather
+# than corrupting what's published. A drone keeps flying (and draining
+# battery/completing missions) while "out of contact" - only the backend
+# loses track of it, exactly like a real field unit that's still airborne
+# behind a hill with no line of sight to its ground station. Per-tick
+# chance of 0.01 at the default 2s publish interval is roughly one outage
+# every ~200s per drone; a 5-15 tick duration is a 10-30s outage, long
+# enough to be clearly visible (SIGNAL_LOST persisting for several backend
+# watchdog ticks) without stalling a demo for minutes.
+SIGNAL_LOSS_CHANCE_PER_TICK = float(os.environ.get("SIGNAL_LOSS_CHANCE_PER_TICK", "0.01"))
+SIGNAL_LOSS_MIN_TICKS = int(os.environ.get("SIGNAL_LOSS_MIN_TICKS", "5"))
+SIGNAL_LOSS_MAX_TICKS = int(os.environ.get("SIGNAL_LOSS_MAX_TICKS", "15"))

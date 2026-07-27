@@ -80,6 +80,23 @@ class AlertServiceTests {
     }
 
     @Test
+    void raisesSignalLostAndRecoveredOnTransition() {
+        // SignalMonitorService is what actually flips a real drone to
+        // SIGNAL_LOST (Sprint 13, off a telemetry timeout, not a reading) -
+        // but AlertService.evaluate() itself doesn't care where a status
+        // transition came from, and "SIGNAL_LOST" is (like every other
+        // DroneStatus) a value TelemetryPayload.status() can legitimately
+        // carry, so driving it through applyTelemetry() here exercises the
+        // exact same evaluate() branch without needing the watchdog.
+        telemetry(80, "PATROLLING", OUTSIDE_ZONE_LAT, OUTSIDE_ZONE_LON);
+        telemetry(78, "SIGNAL_LOST", OUTSIDE_ZONE_LAT, OUTSIDE_ZONE_LON);
+        telemetry(76, "PATROLLING", OUTSIDE_ZONE_LAT, OUTSIDE_ZONE_LON);
+
+        assertEquals(1, eventsOfType(EventType.SIGNAL_LOST).size());
+        assertEquals(1, eventsOfType(EventType.SIGNAL_RECOVERED).size());
+    }
+
+    @Test
     void raisesEnteredAndExitedRiskZoneOnBoundaryCrossings() {
         telemetry(90, "PATROLLING", OUTSIDE_ZONE_LAT, OUTSIDE_ZONE_LON);
         // Several readings at the same point, not one abrupt jump: since

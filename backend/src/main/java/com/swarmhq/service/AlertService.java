@@ -54,6 +54,21 @@ public class AlertService {
             raise(drone, EventType.STATUS_CHANGE, previousStatus + " -> " + drone.getStatus());
         }
 
+        // Network resilience (Sprint 13): dedicated events alongside the
+        // generic STATUS_CHANGE above (same "more than one event can fire
+        // off a single transition" precedent as LOW_BATTERY, which often
+        // coincides with a PATROLLING -> RETURNING STATUS_CHANGE already).
+        // SIGNAL_LOST is raised by SignalMonitorService's watchdog, never
+        // by telemetry; SIGNAL_RECOVERED needs no watchdog counterpart -
+        // it falls out for free the moment fresh telemetry reaches here
+        // with previousStatus already SIGNAL_LOST.
+        if (previousStatus != null && previousStatus != DroneStatus.SIGNAL_LOST && drone.getStatus() == DroneStatus.SIGNAL_LOST) {
+            raise(drone, EventType.SIGNAL_LOST, "Lost signal - last known position retained");
+        }
+        if (previousStatus == DroneStatus.SIGNAL_LOST && drone.getStatus() != DroneStatus.SIGNAL_LOST) {
+            raise(drone, EventType.SIGNAL_RECOVERED, "Signal recovered");
+        }
+
         evaluateRiskZones(drone, previousPosition);
     }
 
