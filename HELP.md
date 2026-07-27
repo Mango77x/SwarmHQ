@@ -11,7 +11,7 @@ Local setup and troubleshooting notes. For architecture and roadmap, see
 - Node 20+ (for the frontend; not required for `./mvnw package -Pfrontend`,
   which downloads its own pinned Node version automatically)
 
-## Running the infrastructure (Sprint 1)
+## Running the infrastructure
 
 ```bash
 cp .env.example .env
@@ -24,6 +24,7 @@ This starts:
 |---|---|---|
 | PostgreSQL/PostGIS | `5433` (host, from `.env`) | credentials in `.env`, gitignored; non-default port, see Troubleshooting |
 | Mosquitto (MQTT) | `1883` (MQTT), `9001` (MQTT over WebSocket) | anonymous access enabled for now, see below |
+| Backend | `8080` | see "Running the backend in Docker" below - optional, only starts if you ask for it |
 
 Stop with:
 
@@ -33,6 +34,37 @@ docker compose down
 
 Add `-v` to also delete the Postgres data volume (destructive — only do
 this if you want a clean database).
+
+## Running the backend in Docker
+
+`docker compose up -d` above does **not** start the `backend` service by
+default unless you name it explicitly:
+
+```bash
+docker compose up -d --build backend
+```
+
+This builds `backend/Dockerfile` (multi-stage: Node builds the frontend,
+a JDK image builds the backend with that frontend baked into
+`static/app`, then a slim JRE image runs the jar) and serves the whole
+app - map included - at `http://localhost:8080/app`.
+
+**This is also the recommended way to run the backend at all on a machine
+hit by the Tomcat/NIO bug below**: the container runs Linux, where
+`WEPollSelectorImpl` (a Windows-only JDK class) doesn't exist, so the bug
+simply can't occur - no workaround needed, no `web-application-type=none`
+trick required. If `./mvnw spring-boot:run` fails on your machine, reach
+for this instead.
+
+Rebuild after backend or frontend changes with
+`docker compose build backend` (or add `--build` to `up` as above).
+
+Each instance of the app - a local `./mvnw spring-boot:run`, this Docker
+container, another local run - gets its own randomized MQTT client id
+suffix (`MqttConfig`) specifically so they can all connect to the same
+broker at once without kicking each other off. Don't run two `docker
+compose up backend` against the *same* Postgres and expect clean
+concurrent writes, though - that's a different problem this doesn't solve.
 
 ## Running the backend
 
@@ -171,32 +203,16 @@ environment (your machine, CI, etc.) keeps its own values.
   bare `Selector.open()` with no Spring involved fails the same way on an
   affected machine. It shows up when something on the host (commonly
   endpoint-security/AV network-filter software) interferes with the
-  loopback socket pair the JDK's Windows NIO selector sets up internally.
-  `./mvnw test` still works despite this, since the default `@SpringBootTest`
-  web environment is mocked and never binds a real socket. Workarounds to
-  try: temporarily disable the security software's network filtering, or
-  run from a machine/profile without it. To manually verify MQTT
-  ingestion end-to-end (e.g. against the simulator) on an affected
-  machine without hitting this bug at all, run the backend with the
-  embedded web server disabled - everything except the HTTP/WebSocket
-  layer still starts normally:
-  ```bash
-  ./mvnw spring-boot:run -Dspring-boot.run.arguments=--spring.main.web-application-type=none
-  ```
-  That trick disables the web server entirely though, so it can't help
-  verify `GET /api/drones` or the frontend against a live backend on an
-  affected machine - there's currently no way to run a real Tomcat here at
-  all. What still works: `DroneControllerTests` (MockMvc drives the
-  `DispatcherServlet` in-memory, no socket involved) proves the endpoint's
-  behavior; and for the frontend, `npm run dev` (a Node process, unaffected
-  by this JDK-specific bug) against a small throwaway mock HTTP server
-  standing in for `/api/drones` is enough to verify the map/markers render
-  correctly - inspect via the browser tool's `read_page` (accessibility
-  tree - confirms marker count/labels), `read_network_requests` (confirms
-  the OpenFreeMap style/tiles actually loaded), and
-  `performance.getEntriesByType('resource')` for the map `<canvas>`'s
-  actual pixel dimensions, since a raw screenshot may not always be
-  available depending on how the browser pane is displayed.
+  loopback socket pair the JDK's Windows NIO selector sets up internally,
+  and it isn't specific to the default selector provider either (forcing
+  the legacy `WindowsSelectorProvider` fails identically - both eventually
+  hit the same broken `Pipe`/Unix-domain-socket bootstrap).
+  **Fix: run the backend via Docker instead** (see "Running the backend
+  in Docker" above) - a Linux container doesn't have this class at all, so
+  the bug can't occur there, no workaround needed. `./mvnw test` also
+  works despite the bug, since the default `@SpringBootTest` web
+  environment is mocked and never binds a real socket - so day-to-day
+  backend test iteration is unaffected either way.
 - **Hibernate fails at startup with `SchemaManagementException: Schema
   validation: missing table [...]`, and nothing in the log mentions
   Flyway at all**: Spring Boot 4 split Flyway autoconfiguration into its
@@ -227,6 +243,20 @@ environment (your machine, CI, etc.) keeps its own values.
   worker entry point Vite's optimizer doesn't handle perfectly). Harmless
   in practice - the map still initializes and renders correctly despite
   the warning.
+- **The map/app loads at `/app` but the JS/CSS 404 at `/assets/...` (not
+  `/app/assets/...`)**: Vite defaults to root-relative asset paths, which
+  is wrong once the SPA is actually served from a subpath. Fixed by
+  setting `base: '/app/'` in `vite.config.ts` - re-check this if the
+  serving path ever changes.
+- **A test that publishes/consumes MQTT (or the Docker backend) behaves
+  as if messages never arrive, with no error anywhere**: check whether
+  two instances of the app are running at once (e.g. a local
+  `./mvnw spring-boot:run`/test JVM *and* the Docker container) - MQTT
+  brokers allow only one active connection per client id, so two
+  instances sharing one silently kick each other's subscription off with
+  no visible error. `MqttConfig` appends a random suffix to the
+  configured client id specifically to prevent this; if it resurfaces,
+  something is reusing a fixed id somewhere.
 - **`docker compose up` fails pulling images**: confirm Docker Desktop /
   the Docker daemon is running.
 - **Postgres container unhealthy**: check `docker compose logs postgis` —

@@ -92,7 +92,17 @@ cp .env.example .env
 docker compose up -d
 ```
 
-See [HELP.md](HELP.md) for ports, environment variables, and troubleshooting.
+That's infra only (Mosquitto + PostgreSQL/PostGIS). To also run the full
+app (backend + map) in a container - no local JDK/Node required, and the
+recommended way to run it at all if `./mvnw spring-boot:run` fails on your
+machine:
+
+```bash
+docker compose up -d --build backend
+```
+
+Then open `http://localhost:8080/app`. See [HELP.md](HELP.md) for ports,
+environment variables, and troubleshooting.
 
 ---
 
