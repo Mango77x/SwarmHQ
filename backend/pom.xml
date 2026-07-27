@@ -118,4 +118,81 @@
 		</plugins>
 	</build>
 
+	<profiles>
+		<!--
+			Not part of the default build on purpose: plain `./mvnw test` /
+			`./mvnw spring-boot:run` stay fast, Java-only, and don't require
+			Node - useful since backend iteration is far more frequent than
+			producing a bundled jar. Run frontend dev via `npm run dev` in
+			frontend/ (see HELP.md) day to day; use this profile
+			(`./mvnw package -Pfrontend`) to produce a single jar with the
+			built React app baked in, matching the MOLS pattern.
+		-->
+		<profile>
+			<id>frontend</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>com.github.eirslett</groupId>
+						<artifactId>frontend-maven-plugin</artifactId>
+						<version>1.15.1</version>
+						<configuration>
+							<workingDirectory>${project.basedir}/../frontend</workingDirectory>
+						</configuration>
+						<executions>
+							<execution>
+								<id>install-node-and-npm</id>
+								<goals>
+									<goal>install-node-and-npm</goal>
+								</goals>
+								<configuration>
+									<nodeVersion>v22.20.0</nodeVersion>
+								</configuration>
+							</execution>
+							<execution>
+								<id>npm-install</id>
+								<goals>
+									<goal>npm</goal>
+								</goals>
+								<configuration>
+									<arguments>ci</arguments>
+								</configuration>
+							</execution>
+							<execution>
+								<id>npm-build</id>
+								<goals>
+									<goal>npm</goal>
+								</goals>
+								<configuration>
+									<arguments>run build</arguments>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-resources-plugin</artifactId>
+						<executions>
+							<execution>
+								<id>copy-frontend-dist</id>
+								<phase>generate-resources</phase>
+								<goals>
+									<goal>copy-resources</goal>
+								</goals>
+								<configuration>
+									<outputDirectory>${project.build.outputDirectory}/static/app</outputDirectory>
+									<resources>
+										<resource>
+											<directory>${project.basedir}/../frontend/dist</directory>
+										</resource>
+									</resources>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
+
 </project>

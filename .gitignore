@@ -14,6 +14,11 @@ __pycache__/
 .venv/
 venv/
 
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/node/
+
 # IDE
 .idea/
 *.iml
