@@ -1,7 +1,7 @@
 # SwarmHQ
 
 <p align="center">
-  <img alt="STATUS" src="https://img.shields.io/badge/status-sprint%203%20of%209-informational?style=for-the-badge">
+  <img alt="STATUS" src="https://img.shields.io/badge/status-sprint%204%20of%209-informational?style=for-the-badge">
   <a href="HELP.md">
     <img alt="HELP" src="https://img.shields.io/badge/help-HELP.md-informational?style=for-the-badge">
   </a>
@@ -70,11 +70,12 @@ Full rationale for each choice in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
 
 ## Status
 
-**Sprint 3 of 9** — `Drone`/`Mission`/`Event` JPA entities with real
-PostGIS geometry columns, schema managed by Flyway. No MQTT listener,
-simulator, or UI yet. See [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for
-the full sprint plan and [HELP.md](HELP.md) for known limitations of the
-current sprint.
+**Sprint 4 of 9** — an MQTT listener now ingests drone telemetry
+(`drones/{externalId}/telemetry`) and upserts `Drone` rows in real time.
+No simulator or UI yet, so there's nothing publishing telemetry on its own
+- see [HELP.md](HELP.md) for how to publish a test message by hand. See
+[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for the full sprint plan and
+[HELP.md](HELP.md) for known limitations of the current sprint.
 
 ---
 

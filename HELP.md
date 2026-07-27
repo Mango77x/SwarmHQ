@@ -41,18 +41,34 @@ With the infrastructure up (previous section), from `backend/`:
 
 It connects to Postgres/PostGIS (Flyway applies `src/main/resources/db/migration`
 on startup, Hibernate only validates against it), connects to Mosquitto as
-an MQTT client (no subscriptions yet), and starts a WebSocket/STOMP broker
-at `/ws` (no destinations published yet). There's no HTTP endpoint of its
-own beyond Spring Boot Actuator at `/actuator/health` — that arrives with
-the first REST controller in a later sprint.
+an MQTT client and subscribes to `drones/+/telemetry` (see
+[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md), "MQTT contract"), and starts a
+WebSocket/STOMP broker at `/ws` (no destinations published yet). There's no
+HTTP endpoint of its own beyond Spring Boot Actuator at `/actuator/health`
+— that arrives with the first REST controller in a later sprint.
 
 Schema changes go in a new `db/migration/V{n}__description.sql` file (never
 edit an already-applied one) - `Drone`/`Mission`/`Event` and their PostGIS
-columns are defined in `V1__init_schema.sql` as of Sprint 3.
+columns are defined in `V1__init_schema.sql` (Sprint 3), `Drone.external_id`
+in `V2__add_drone_external_id.sql` (Sprint 4).
 
-`./mvnw test` runs the context-load smoke test (`SwarmHqApplicationTests`);
-it uses Spring's default mock web environment, so it doesn't require an
-actual HTTP listener to bind.
+`./mvnw test` runs the full test suite against the real infra from
+`docker-compose.yml` (context load, the geometry round-trip, and an
+end-to-end MQTT publish-and-persist check) - no Testcontainers yet, so the
+stack from the previous section must already be running.
+
+### Publishing a test telemetry message by hand
+
+With no simulator yet (Sprint 5), you can still exercise the listener
+directly against Mosquitto:
+
+```bash
+docker exec swarmhq-mosquitto mosquitto_pub -h localhost \
+  -t drones/manual-test-1/telemetry \
+  -m '{"type":"quadcopter","lat":40.4168,"lon":-3.7038,"batteryPercent":90,"status":"PATROLLING"}'
+```
+
+Then check it landed: `docker exec swarmhq-postgis psql -U swarmhq -d swarmhq -c "SELECT external_id, battery_percent, status FROM drones;"`
 
 ## Environment variables
 
@@ -116,6 +132,22 @@ environment (your machine, CI, etc.) keeps its own values.
   enough by itself, Flyway silently never runs. `pom.xml` already declares
   `spring-boot-flyway` for this reason; if you hit this after adding a new
   dependency elsewhere, check it didn't get excluded.
+- **`MqttClient.subscribe(String, int, IMqttMessageListener)` throws a
+  `StackOverflowError`**: this is a real bug in Eclipse Paho's mqttv5 client
+  `1.2.5` — that overload (and the `String[]/int[]/IMqttMessageListener[]`
+  one it delegates to) call themselves instead of the next overload down,
+  confirmed by disassembling the jar. `DroneTelemetryListener.subscribe()`
+  uses the `MqttSubscription[]/IMqttMessageListener[]` overload instead,
+  which is implemented correctly. Re-check this if the Paho version ever
+  changes.
+- **A `Awaitility.await().untilAsserted(...)` block fails immediately
+  instead of retrying for the full timeout**: only `AssertionError` (what
+  JUnit/AssertJ assertions throw) gets retried - a plain exception like
+  `Optional.orElseThrow()`'s `NoSuchElementException` propagates on the
+  first failing poll instead. Use `assertTrue(optional.isPresent())` before
+  unwrapping, not `.orElseThrow()`, inside an `untilAsserted` block (see
+  `DroneTelemetryListenerTests` - this exact bug made that test flaky until
+  fixed).
 - **`docker compose up` fails pulling images**: confirm Docker Desktop /
   the Docker daemon is running.
 - **Postgres container unhealthy**: check `docker compose logs postgis` —
