@@ -197,6 +197,34 @@ Implemented as of Sprint 5 (`simulator/`, Python, `paho-mqtt`):
   random signal loss, and swarm/auction coordination between drones - each
   is its own later differentiation layer.
 
+## Dashboard KPIs
+
+Implemented as of Sprint 9
+(`backend/src/main/java/com/swarmhq/service/KpiService.java`):
+
+- Four aggregates, `GET /api/kpis` (`KpiSummary`): active mission count,
+  mission success rate (`COMPLETED / (COMPLETED + FAILED)` as a
+  percentage), alerts raised in the last hour, and drones currently at or
+  below the low-battery threshold (reuses `AlertService.LOW_BATTERY_THRESHOLD`
+  rather than a second magic number).
+- **Polled, not pushed**: unlike `DroneService`/`AlertService`, `KpiService`
+  has no STOMP topic - the frontend's `KpiBar` calls `GET /api/kpis` every
+  5s instead. These are aggregate counts a dashboard reasonably refreshes
+  every few seconds, not per-event state a marker/alert list needs
+  instantly - broadcasting a full recompute on every single
+  drone/event/mission write would cost real complexity for no meaningful
+  benefit here.
+- **Mission KPIs will show `0` active / `null` (`N/A`) success rate** on a
+  fresh install, honestly - this project has no path that ever creates a
+  `Mission` row yet (`Mission` has existed unused since Sprint 3; centrally
+  assigning drones to missions is the "Constrained mission assignment"
+  differentiation layer, deliberately post-MVP). `missionSuccessRatePercent`
+  is `null` rather than `0` specifically to distinguish "no missions have
+  ever finished" from "0% succeeded" - those are different facts. Once
+  that differentiation layer exists and starts writing real `Mission`
+  rows, these two KPIs start reflecting real data with no changes needed
+  here.
+
 ## REST API
 
 Implemented as of Sprint 6:
@@ -215,6 +243,9 @@ Implemented as of Sprint 6:
   `[lon, lat]` pairs (`ZoneResponse` - the same coordinate order as a
   GeoJSON `Polygon` ring, so the frontend drops it straight into one with
   no reordering).
+- `GET /api/kpis` (Sprint 9) - dashboard aggregates (`KpiService.summarize`,
+  see "Dashboard KPIs" below). The one REST endpoint that's polled rather
+  than pushed - see that section for why.
 
 ## WebSocket contract
 
@@ -245,8 +276,8 @@ Implemented as of Sprint 7
 
 ## Frontend
 
-Implemented as of Sprint 6/7/8 (`frontend/`, React 19 + TypeScript + Vite +
-Tailwind 4 + `maplibre-gl` + `@stomp/stompjs` + `sockjs-client`):
+Implemented as of Sprint 6/7/8/9 (`frontend/`, React 19 + TypeScript +
+Vite + Tailwind 4 + `maplibre-gl` + `@stomp/stompjs` + `sockjs-client`):
 
 - Single page for now: a header bar and a full-height `TacticalMap`
   component. `TacticalMap` renders a MapLibre map on OpenFreeMap's `dark`
@@ -270,6 +301,12 @@ Tailwind 4 + `maplibre-gl` + `@stomp/stompjs` + `sockjs-client`):
   `Event`s instead of `Drone`s (`GET /api/events` once, then
   `/topic/events`) - a small top-right panel listing the most recent
   alerts, newest first, capped at 8 visible.
+- **KPI dashboard (Sprint 9)**: `KpiBar` (`frontend/src/components/KpiBar.tsx`)
+  sits in the header, polling `GET /api/kpis` every 5s (the one place this
+  frontend polls rather than subscribes - see "Dashboard KPIs" above for
+  why) and rendering four tiles: active missions, mission success rate,
+  alerts in the last hour, and drones at critical battery. The last two
+  highlight red when non-zero.
 - **Build/serve integration**: `frontend/` is a self-contained Vite
   project (its own `npm run dev`/`npm run build`, proxying `/api` to
   `localhost:8080` in dev). It is *not* part of the backend's default
@@ -305,7 +342,15 @@ Tailwind 4 + `maplibre-gl` + `@stomp/stompjs` + `sockjs-client`):
 | 6 | ✅ | Static tactical map (MapLibre) via REST, last known position |
 | 7 | ✅ | Live updates over WebSocket/STOMP |
 | 8 | ✅ | Business logic: battery/status alerts, geofenced risk zones |
-| 9 |  | KPI dashboard (active missions, success rate, recent alerts, critical battery) |
+| 9 | ✅ | KPI dashboard (active missions, success rate, recent alerts, critical battery) |
+
+Core MVP complete as of Sprint 9: the full pipeline (simulator → MQTT →
+persistence → live map/alerts/KPIs) runs end to end. What's *not* real yet
+- and won't be faked to make a KPI tile look busier - is anything that
+needs a mission-assignment engine (active mission count, success rate)
+or the network-resilience layer (`SIGNAL_LOST`/`SIGNAL_RECOVERED`); both
+are differentiation layers below, not bugs in Sprint 9. Remaining work is
+the differentiation layers.
 
 ### Differentiation layers (post-MVP, in priority order)
 
