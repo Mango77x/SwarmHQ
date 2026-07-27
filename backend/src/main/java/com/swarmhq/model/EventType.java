@@ -1,0 +1,9 @@
+package com.swarmhq.model;
+
+public enum EventType {
+    LOW_BATTERY,
+    WAYPOINT_REACHED,
+    SIGNAL_LOST,
+    SIGNAL_RECOVERED,
+    STATUS_CHANGE
+}

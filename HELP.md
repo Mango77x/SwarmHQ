@@ -31,7 +31,7 @@ docker compose down
 Add `-v` to also delete the Postgres data volume (destructive — only do
 this if you want a clean database).
 
-## Running the backend (Sprint 2)
+## Running the backend
 
 With the infrastructure up (previous section), from `backend/`:
 
@@ -39,12 +39,16 @@ With the infrastructure up (previous section), from `backend/`:
 ./mvnw spring-boot:run
 ```
 
-This is a bare skeleton: it connects to Postgres/PostGIS (Hibernate Spatial
-integration active, no entities yet), connects to Mosquitto as an MQTT
-client (no subscriptions yet), and starts a WebSocket/STOMP broker at `/ws`
-(no destinations published yet). There's no HTTP endpoint of its own beyond
-Spring Boot Actuator at `/actuator/health` — that arrives with the first
-REST controller in a later sprint.
+It connects to Postgres/PostGIS (Flyway applies `src/main/resources/db/migration`
+on startup, Hibernate only validates against it), connects to Mosquitto as
+an MQTT client (no subscriptions yet), and starts a WebSocket/STOMP broker
+at `/ws` (no destinations published yet). There's no HTTP endpoint of its
+own beyond Spring Boot Actuator at `/actuator/health` — that arrives with
+the first REST controller in a later sprint.
+
+Schema changes go in a new `db/migration/V{n}__description.sql` file (never
+edit an already-applied one) - `Drone`/`Mission`/`Event` and their PostGIS
+columns are defined in `V1__init_schema.sql` as of Sprint 3.
 
 `./mvnw test` runs the context-load smoke test (`SwarmHqApplicationTests`);
 it uses Spring's default mock web environment, so it doesn't require an
@@ -72,11 +76,14 @@ environment (your machine, CI, etc.) keeps its own values.
   [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md), "Security hardening").
 - **`hibernate-spatial` pinned to `7.0.2.Final`** against a `hibernate-core`
   managed at `7.4.1.Final` by the Spring Boot 4.1 parent — spatial-specific
-  releases tend to lag behind core. Verified working for context startup;
-  re-validate once Sprint 3 adds an actual `geometry(Point)`-mapped entity
-  and exercises the spatial dialect for real.
-- No entities, MQTT listener, REST controllers, or UI yet (Sprint 3+) — this
-  sprint only proves the skeleton connects to everything it needs to.
+  releases tend to lag behind core. Confirmed working end-to-end as of
+  Sprint 3: `Drone.position` (a `geometry(Point,4326)` column) round-trips
+  correctly through JTS/Hibernate Spatial/PostGIS (see
+  `DroneRepositoryTests`). Still worth re-checking after any future
+  `hibernate-core` version bump.
+- No MQTT listener, REST controllers, or UI yet (Sprint 4+) — Sprint 3 only
+  adds the `Drone`/`Mission`/`Event` entities and their Flyway-managed
+  schema.
 
 ## Troubleshooting
 
@@ -101,6 +108,14 @@ environment (your machine, CI, etc.) keeps its own values.
   web environment is mocked and never binds a real socket. Workarounds to
   try: temporarily disable the security software's network filtering, or
   run from a machine/profile without it.
+- **Hibernate fails at startup with `SchemaManagementException: Schema
+  validation: missing table [...]`, and nothing in the log mentions
+  Flyway at all**: Spring Boot 4 split Flyway autoconfiguration into its
+  own `org.springframework.boot:spring-boot-flyway` module — having
+  `flyway-core` (and `flyway-database-postgresql`) on the classpath isn't
+  enough by itself, Flyway silently never runs. `pom.xml` already declares
+  `spring-boot-flyway` for this reason; if you hit this after adding a new
+  dependency elsewhere, check it didn't get excluded.
 - **`docker compose up` fails pulling images**: confirm Docker Desktop /
   the Docker daemon is running.
 - **Postgres container unhealthy**: check `docker compose logs postgis` —

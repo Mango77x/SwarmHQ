@@ -76,11 +76,22 @@ to cause real-world harm is in scope, ever.
 
 ## Data model (baseline)
 
-- **Drone**: id, type, position (`geometry(Point)`), battery, status
-  (patrolling / on mission / returning / signal lost), last update timestamp.
-- **Mission**: id, waypoint route, assigned drone(s), status, priority.
-- **Event**: audit log — low battery, waypoint reached, signal lost/regained,
-  status change. (Same audit/movement-log pattern as MOLS.)
+Implemented as of Sprint 3 (`backend/src/main/java/com/swarmhq/model`),
+schema owned by Flyway (`backend/src/main/resources/db/migration`):
+
+- **Drone**: id, type, position (`geometry(Point,4326)`, nullable until the
+  first telemetry arrives), battery percent, status (`PATROLLING` /
+  `ON_MISSION` / `RETURNING` / `SIGNAL_LOST`), last update timestamp.
+- **Mission**: id, route (`geometry(LineString,4326)`), an optional
+  many-to-one assigned drone (kept single-drone for MVP simplicity - the
+  "assign missions to multiple drones" case is deferred to the mission
+  assignment engine / swarm differentiation layers, not solved here),
+  status (`PENDING` / `ACTIVE` / `COMPLETED` / `FAILED`), priority (`LOW` /
+  `MEDIUM` / `HIGH`), created-at timestamp.
+- **Event**: append-only audit log entry - many-to-one to `Drone` (required)
+  and `Mission` (optional), type (`LOW_BATTERY` / `WAYPOINT_REACHED` /
+  `SIGNAL_LOST` / `SIGNAL_RECOVERED` / `STATUS_CHANGE`), free-text detail,
+  occurred-at timestamp. Same audit/movement-log pattern as MOLS.
 
 ## Roadmap
 
@@ -90,7 +101,7 @@ to cause real-world harm is in scope, ever.
 |---|---|---|
 | 1 | ✅ | Local infra: Docker Compose with Mosquitto + PostgreSQL/PostGIS |
 | 2 | ✅ | Spring Boot project skeleton (Web, Data JPA, WebSocket, Hibernate Spatial, MQTT client) |
-| 3 |  | `Drone` / `Mission` / `Event` entities with PostGIS `Point` geometry |
+| 3 | ✅ | `Drone` / `Mission` / `Event` entities with PostGIS `Point` geometry |
 | 4 |  | MQTT listener persisting incoming telemetry (`drones/+/telemetry`) |
 | 5 |  | Basic simulator: 3-5 drones moving between waypoints over MQTT |
 | 6 |  | Static tactical map (MapLibre) via REST, last known position |
