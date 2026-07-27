@@ -106,8 +106,45 @@ schema owned by Flyway (`backend/src/main/resources/db/migration`):
   `MEDIUM` / `HIGH`), created-at timestamp.
 - **Event**: append-only audit log entry - many-to-one to `Drone` (required)
   and `Mission` (optional), type (`LOW_BATTERY` / `WAYPOINT_REACHED` /
-  `SIGNAL_LOST` / `SIGNAL_RECOVERED` / `STATUS_CHANGE`), free-text detail,
+  `SIGNAL_LOST` / `SIGNAL_RECOVERED` / `STATUS_CHANGE` / `ENTERED_RISK_ZONE`
+  / `EXITED_RISK_ZONE` - the last two added Sprint 8), free-text detail,
   occurred-at timestamp. Same audit/movement-log pattern as MOLS.
+- **RiskZone** (Sprint 8): id, name, area (`geometry(Polygon,4326)`) - a
+  geofenced danger area `AlertService` checks drone positions against.
+  Static for now, seeded by Flyway (`V3__add_risk_zones.sql`); no write
+  path exists yet since defining zones isn't a use case this project needs
+  today.
+
+## Alerting
+
+Implemented as of Sprint 8
+(`backend/src/main/java/com/swarmhq/service/AlertService.java`):
+
+- Called from `DroneService.applyTelemetry` with the drone's state from
+  just before that call overwrites it, so every check here is
+  transition-based - each fires once when crossing a threshold/boundary,
+  not on every telemetry tick spent past it:
+  - **`LOW_BATTERY`**: `batteryPercent` crosses from above
+    `AlertService.LOW_BATTERY_THRESHOLD` (20) to at-or-below it.
+  - **`STATUS_CHANGE`**: `status` differs from the previous reading.
+  - **`ENTERED_RISK_ZONE` / `EXITED_RISK_ZONE`**: the drone's position
+    transitions across a `RiskZone` boundary, via
+    `RiskZoneRepository.findContaining` (native `ST_Contains` - the same
+    "real PostGIS query, not hand-rolled math" theme as the rest of the
+    project). A brand-new drone (no previous position to compare against)
+    is still checked - if its very first reading already lands inside a
+    zone, that's a legitimate `ENTERED_RISK_ZONE`, not a no-op.
+  - A brand-new drone (no previous battery/status to compare against)
+    only gets geofencing checked - "changed" doesn't mean anything yet for
+    a first-ever reading, so battery/status checks are skipped rather than
+    firing a spurious event every time a drone first appears.
+- Every raised `Event` is persisted (audit trail, `GET /api/events`) *and*
+  broadcast live to `/topic/events` - the alerting counterpart to
+  `DroneService`'s `/topic/drones` push (Sprint 7).
+- Deliberately out of scope for this sprint: automatic `SIGNAL_LOST`
+  detection (the simulator never actually drops a connection yet - that's
+  the "Network resilience" differentiation layer) and mission
+  success/failure logic (`Mission` isn't touched by any listener yet).
 
 ## MQTT contract
 
@@ -171,6 +208,13 @@ Implemented as of Sprint 6:
   telemetry arrives), `batteryPercent`, `status`, `lastUpdateAt` - the
   internal database id is never exposed, `externalId` is the public
   identifier throughout.
+- `GET /api/events` (Sprint 8) - the 50 most recent alerts, newest first
+  (`EventService.listRecent`). Returns `droneExternalId`, `type`,
+  `detail`, `occurredAt` - same "no internal ids" convention.
+- `GET /api/zones` (Sprint 8) - every `RiskZone`'s exterior ring as
+  `[lon, lat]` pairs (`ZoneResponse` - the same coordinate order as a
+  GeoJSON `Polygon` ring, so the frontend drops it straight into one with
+  no reordering).
 
 ## WebSocket contract
 
@@ -191,6 +235,9 @@ Implemented as of Sprint 7
   is deliberate: the expected fleet size (single-digit to low-tens of
   drones) doesn't need the fan-out savings a per-drone topic would give,
   and clients upsert by `externalId` either way.
+- A second topic, `/topic/events` (`AlertService.EVENT_UPDATES_TOPIC`,
+  Sprint 8) - every `Event` `AlertService` raises is broadcast here,
+  the same `EventResponse` shape `GET /api/events` returns.
 - No `/app`-prefixed client-to-server destinations exist yet - drones only
   broadcast telemetry they generate themselves; nothing today has a
   server-side handler needed for a client to *send* something over this
@@ -198,7 +245,7 @@ Implemented as of Sprint 7
 
 ## Frontend
 
-Implemented as of Sprint 6/7 (`frontend/`, React 19 + TypeScript + Vite +
+Implemented as of Sprint 6/7/8 (`frontend/`, React 19 + TypeScript + Vite +
 Tailwind 4 + `maplibre-gl` + `@stomp/stompjs` + `sockjs-client`):
 
 - Single page for now: a header bar and a full-height `TacticalMap`
@@ -214,7 +261,15 @@ Tailwind 4 + `maplibre-gl` + `@stomp/stompjs` + `sockjs-client`):
   indicator (bottom-left) reflects the WebSocket connection state. Markers
   are never removed on their own in this model - a drone that stops
   reporting doesn't disappear, it should eventually show as `SIGNAL_LOST`
-  (Sprint 8), not vanish.
+  (a later differentiation layer), not vanish.
+- **Alerting (Sprint 8)**: risk zones (`GET /api/zones`) are drawn once,
+  on map load, as a translucent red fill + outline layer from a GeoJSON
+  source built out of each zone's ring. `AlertsPanel`
+  (`frontend/src/components/AlertsPanel.tsx`) is the same
+  REST-baseline-then-STOMP-push pattern as the map itself, just for
+  `Event`s instead of `Drone`s (`GET /api/events` once, then
+  `/topic/events`) - a small top-right panel listing the most recent
+  alerts, newest first, capped at 8 visible.
 - **Build/serve integration**: `frontend/` is a self-contained Vite
   project (its own `npm run dev`/`npm run build`, proxying `/api` to
   `localhost:8080` in dev). It is *not* part of the backend's default
@@ -249,7 +304,7 @@ Tailwind 4 + `maplibre-gl` + `@stomp/stompjs` + `sockjs-client`):
 | 5 | ✅ | Basic simulator: 3-5 drones moving between waypoints over MQTT |
 | 6 | ✅ | Static tactical map (MapLibre) via REST, last known position |
 | 7 | ✅ | Live updates over WebSocket/STOMP |
-| 8 |  | Business logic: battery/status alerts, geofenced risk zones |
+| 8 | ✅ | Business logic: battery/status alerts, geofenced risk zones |
 | 9 |  | KPI dashboard (active missions, success rate, recent alerts, critical battery) |
 
 ### Differentiation layers (post-MVP, in priority order)

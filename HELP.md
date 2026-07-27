@@ -104,6 +104,14 @@ docker exec swarmhq-mosquitto mosquitto_pub -h localhost \
 
 Then check it landed: `docker exec swarmhq-postgis psql -U swarmhq -d swarmhq -c "SELECT external_id, battery_percent, status FROM drones;"`
 
+To trigger an alert by hand (Sprint 8) instead of waiting for the
+simulator's patrol loop to cross the seeded risk zone: publish a second
+message for the same drone with `lat`/`lon` inside `V3__add_risk_zones.sql`'s
+"Sector 1 Perimeter Risk Zone" (lon `[-3.7048, -3.7028]`, lat
+`[40.4190, 40.4210]` - e.g. `"lat":40.42,"lon":-3.7038`) for
+`ENTERED_RISK_ZONE`, or `"batteryPercent":15` for `LOW_BATTERY`. Check
+`GET /api/events` or the map's "RECENT ALERTS" panel.
+
 ## Running the simulator
 
 With the infrastructure up (and, if you want persisted data, the backend
