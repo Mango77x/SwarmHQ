@@ -4,6 +4,7 @@ import com.swarmhq.model.Drone;
 import com.swarmhq.model.DroneStatus;
 import com.swarmhq.model.Event;
 import com.swarmhq.model.EventType;
+import com.swarmhq.model.Mission;
 import com.swarmhq.model.RiskZone;
 import com.swarmhq.repository.EventRepository;
 import com.swarmhq.repository.RiskZoneRepository;
@@ -79,8 +80,26 @@ public class AlertService {
         }
     }
 
+    /**
+     * Same persist-and-broadcast path as the transition checks above, for
+     * callers outside this class that raise an event tied to a
+     * {@link Mission} - {@code MissionStatusListener} (Sprint 10), on
+     * mission completion/failure. {@code mission.getAssignedDrone()} is
+     * always non-null here: a mission only reaches COMPLETED/FAILED after
+     * MissionAssignmentService has already assigned it a drone.
+     */
+    public void raiseMissionEvent(Mission mission, EventType type, String detail) {
+        Event event = new Event(mission.getAssignedDrone(), type, detail);
+        event.setMission(mission);
+        persistAndBroadcast(event);
+    }
+
     private void raise(Drone drone, EventType type, String detail) {
-        Event event = eventRepository.save(new Event(drone, type, detail));
-        messagingTemplate.convertAndSend(EVENT_UPDATES_TOPIC, EventResponse.from(event));
+        persistAndBroadcast(new Event(drone, type, detail));
+    }
+
+    private void persistAndBroadcast(Event event) {
+        Event saved = eventRepository.save(event);
+        messagingTemplate.convertAndSend(EVENT_UPDATES_TOPIC, EventResponse.from(saved));
     }
 }

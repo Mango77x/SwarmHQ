@@ -1,7 +1,7 @@
 # SwarmHQ
 
 <p align="center">
-  <img alt="STATUS" src="https://img.shields.io/badge/status-core%20MVP%20complete%20(9%2F9)-success?style=for-the-badge">
+  <img alt="STATUS" src="https://img.shields.io/badge/status-sprint%2010%20of%2014-informational?style=for-the-badge">
   <a href="HELP.md">
     <img alt="HELP" src="https://img.shields.io/badge/help-HELP.md-informational?style=for-the-badge">
   </a>
@@ -70,15 +70,16 @@ Full rationale for each choice in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
 
 ## Status
 
-**Core MVP complete (9 of 9)** — the full pipeline runs end to end:
-simulator → MQTT → PostGIS → live tactical map with automatic alerts
-(low battery, status changes, geofenced risk zones) and a KPI dashboard
-strip (active missions, mission success rate, alerts in the last hour,
-drones at critical battery). Mission-related KPIs are honestly `0`/`N/A`
-today - nothing creates a `Mission` yet, that's the next layer below.
-See [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for the full sprint plan
-(and what's next: the differentiation layers) and [HELP.md](HELP.md) for
-how to run it and known limitations.
+**Sprint 10 of 14** — core MVP (sprints 1-9) is complete; now in the
+differentiation layers. Drones get real missions now: a scheduled
+constrained-assignment engine matches pending missions to the nearest
+eligible drone by real PostGIS distance and battery, pushes the
+assignment over MQTT, and the simulator actually flies the route,
+reporting back completion or failure - closing the "0 active missions,
+N/A success rate" gap the KPI dashboard shipped with in Sprint 9. See
+[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for the full sprint plan (core
+build + differentiation layers) and [HELP.md](HELP.md) for how to run it
+and known limitations.
 
 ---
 

@@ -112,6 +112,25 @@ message for the same drone with `lat`/`lon` inside `V3__add_risk_zones.sql`'s
 `ENTERED_RISK_ZONE`, or `"batteryPercent":15` for `LOW_BATTERY`. Check
 `GET /api/events` or the map's "RECENT ALERTS" panel.
 
+### Creating a mission by hand (Sprint 10)
+
+`V4__seed_demo_missions.sql` already seeds two demo missions near the
+simulator's patrol area, so a normal run assigns/flies/completes them
+without any manual step. To create another one:
+
+```bash
+curl -X POST http://localhost:8080/api/missions \
+  -H "Content-Type: application/json" \
+  -d '{"route":[[-3.7038,40.4168],[-3.6978,40.4228]],"priority":"HIGH"}'
+```
+
+It starts `PENDING`; `MissionAssignmentService`'s scheduled pass (every
+5s) picks it up automatically once an eligible drone (`PATROLLING`,
+battery above the safety margin) is close enough. Check
+`GET /api/missions` for its status, or the map's "RECENT ALERTS" panel
+for the `STATUS_CHANGE`/`WAYPOINT_REACHED` events the assignment and
+completion raise.
+
 ## Running the simulator
 
 With the infrastructure up (and, if you want persisted data, the backend
@@ -306,6 +325,29 @@ environment (your machine, CI, etc.) keeps its own values.
   no visible error. `MqttConfig` appends a random suffix to the
   configured client id specifically to prevent this; if it resurfaces,
   something is reusing a fixed id somewhere.
+- **A native `@Query` fails with `InvalidDataAccessApiUsage: No parameter
+  named ':foo'` even though `:foo` is clearly declared**: check for a `::`
+  Postgres cast immediately after the parameter, e.g. `:foo::geography` -
+  Spring Data's named-parameter parser swallows the cast as part of the
+  parameter name. Use `CAST(:foo AS geography)` instead (see
+  `DroneRepository.findBestForMission`, Sprint 10).
+- **Running `docker compose` from a git worktree and containers seem to
+  vanish, or `docker compose up` tries to recreate `postgis`/`mosquitto`
+  and fails with "Conflict: container name already in use"**: Compose's
+  default project name is the current directory's basename, so a
+  worktree checked out under a differently-named directory (e.g.
+  `.claude/worktrees/some-branch/`) gets its *own* project - but this
+  repo's `container_name`s are fixed strings (`swarmhq-postgis`, etc.),
+  which are globally unique in Docker regardless of project, so a second
+  project can't also create them. `docker compose ps` only shows
+  containers for the *current directory's* project name, even though
+  `docker ps` shows every container - if that's empty despite containers
+  clearly running, they belong to a different project. Fix: pass
+  `-p <project-name>` explicitly (check the running containers' actual
+  project with `docker inspect <container> --format
+  '{{index .Config.Labels "com.docker.compose.project"}}'`) to target the
+  existing one, rather than letting a new directory silently start a
+  second, colliding project.
 - **`docker compose up` fails pulling images**: confirm Docker Desktop /
   the Docker daemon is running.
 - **Postgres container unhealthy**: check `docker compose logs postgis` —
