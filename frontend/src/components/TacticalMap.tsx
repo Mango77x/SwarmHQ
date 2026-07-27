@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { Map as MapLibreMap, Marker, NavigationControl } from "maplibre-gl";
+import { Map as MapLibreMap, Marker, NavigationControl, setWorkerUrl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { fetchDrones, type Drone } from "../api/drones";
+
+// Vite doesn't detect maplibre-gl's internal worker construction and
+// never bundles maplibre-gl-worker.mjs as its own asset, so tiles never
+// load (the map renders, but stays an empty background) unless we point
+// at a copy served as a plain static file. scripts/copy-maplibre-worker.mjs
+// places that copy - and the maplibre-gl-shared.mjs it imports - into
+// public/ before dev/build.
+setWorkerUrl(`${import.meta.env.BASE_URL}maplibre-gl-worker.mjs`);
 
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/dark";
 const MADRID_CENTER: [number, number] = [-3.7038, 40.4168];

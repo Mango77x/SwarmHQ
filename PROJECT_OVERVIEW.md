@@ -198,6 +198,15 @@ Tailwind 4 + `maplibre-gl`):
   `/app` - same end result as MOLS, reached deliberately (a profile gate)
   rather than copied wholesale, since backend iteration is far more
   frequent here than producing a bundled jar.
+- **`backend/Dockerfile`** (multi-stage: Node builds the frontend, a JDK
+  image builds the backend with that frontend copied straight into
+  `src/main/resources/static/app`, a slim JRE image runs the result) gives
+  the same bundled `/app` outcome as `-Pfrontend`, reached a different way
+  because a container build has Node and a JDK in separate stages
+  already - no need to invoke `frontend-maven-plugin` inside it. Also the
+  only way to run a live backend at all on a machine hit by the
+  Tomcat/NIO issue in HELP.md, since it runs on Linux inside the
+  container.
 
 ## Roadmap
 

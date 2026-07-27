@@ -1,0 +1,10 @@
+.git
+.claude
+**/node_modules
+**/dist
+**/target
+**/.venv
+**/venv
+**/__pycache__
+frontend/node
+*.log
