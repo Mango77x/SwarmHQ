@@ -6,7 +6,7 @@ Local setup and troubleshooting notes. For architecture and roadmap, see
 ## Requirements
 
 - Docker + Docker Compose
-- (From Sprint 2 onward) JDK 21+ and Maven, for the Spring Boot backend
+- JDK 21+ (the Maven wrapper handles Maven itself — no local Maven install needed)
 
 ## Running the infrastructure (Sprint 1)
 
@@ -19,7 +19,7 @@ This starts:
 
 | Service | Port(s) | Notes |
 |---|---|---|
-| PostgreSQL/PostGIS | `5432` (host, from `.env`) | credentials in `.env`, gitignored |
+| PostgreSQL/PostGIS | `5433` (host, from `.env`) | credentials in `.env`, gitignored; non-default port, see Troubleshooting |
 | Mosquitto (MQTT) | `1883` (MQTT), `9001` (MQTT over WebSocket) | anonymous access enabled for now, see below |
 
 Stop with:
@@ -31,6 +31,25 @@ docker compose down
 Add `-v` to also delete the Postgres data volume (destructive — only do
 this if you want a clean database).
 
+## Running the backend (Sprint 2)
+
+With the infrastructure up (previous section), from `backend/`:
+
+```bash
+./mvnw spring-boot:run
+```
+
+This is a bare skeleton: it connects to Postgres/PostGIS (Hibernate Spatial
+integration active, no entities yet), connects to Mosquitto as an MQTT
+client (no subscriptions yet), and starts a WebSocket/STOMP broker at `/ws`
+(no destinations published yet). There's no HTTP endpoint of its own beyond
+Spring Boot Actuator at `/actuator/health` — that arrives with the first
+REST controller in a later sprint.
+
+`./mvnw test` runs the context-load smoke test (`SwarmHqApplicationTests`);
+it uses Spring's default mock web environment, so it doesn't require an
+actual HTTP listener to bind.
+
 ## Environment variables
 
 Copy `.env.example` to `.env` before first run; `.env` is gitignored so each
@@ -41,7 +60,7 @@ environment (your machine, CI, etc.) keeps its own values.
 | `POSTGRES_DB` | `swarmhq` | database name |
 | `POSTGRES_USER` | `swarmhq` | database user |
 | `POSTGRES_PASSWORD` | `changeme` | database password — change it, even locally |
-| `POSTGRES_PORT` | `5432` | host port mapped to Postgres |
+| `POSTGRES_PORT` | `5433` | host port mapped to Postgres |
 | `MQTT_PORT` | `1883` | host port mapped to Mosquitto MQTT |
 | `MQTT_WS_PORT` | `9001` | host port mapped to Mosquitto MQTT-over-WebSocket |
 
@@ -51,15 +70,37 @@ environment (your machine, CI, etc.) keeps its own values.
   has `allow_anonymous true` — intentional for this early sprint, replaced by
   TLS + per-client authentication in a later sprint (see
   [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md), "Security hardening").
-- No Spring Boot backend yet (Sprint 2+) — this sprint only stands up the
-  broker and database.
+- **`hibernate-spatial` pinned to `7.0.2.Final`** against a `hibernate-core`
+  managed at `7.4.1.Final` by the Spring Boot 4.1 parent — spatial-specific
+  releases tend to lag behind core. Verified working for context startup;
+  re-validate once Sprint 3 adds an actual `geometry(Point)`-mapped entity
+  and exercises the spatial dialect for real.
+- No entities, MQTT listener, REST controllers, or UI yet (Sprint 3+) — this
+  sprint only proves the skeleton connects to everything it needs to.
 
 ## Troubleshooting
 
-- **Port already in use** (5432 / 1883 / 9001): another local service (e.g.
+- **Port already in use** (5433 / 1883 / 9001): another local service (e.g.
   a native PostgreSQL or Mosquitto install) is likely bound to the same
   port. Either stop it or override the port via the corresponding `.env`
-  variable.
+  variable. This is why Postgres defaults to host port `5433` rather than
+  the standard `5432`: a machine with a native PostgreSQL install already
+  listening on `5432` will silently swallow connections meant for the
+  Docker container (the client authenticates against the *native* Postgres
+  instead, and fails with a password/auth error that has nothing to do with
+  the credentials in `.env`) — Docker itself starts fine either way, so
+  `docker compose ps` showing "healthy" doesn't rule this out.
+- **`./mvnw spring-boot:run` fails with `java.io.IOException: Unable to
+  establish loopback connection` / `WEPollSelectorImpl` / `Invalid argument:
+  connect`**: this is a local JDK-on-Windows issue, not a SwarmHQ bug — a
+  bare `Selector.open()` with no Spring involved fails the same way on an
+  affected machine. It shows up when something on the host (commonly
+  endpoint-security/AV network-filter software) interferes with the
+  loopback socket pair the JDK's Windows NIO selector sets up internally.
+  `./mvnw test` still works despite this, since the default `@SpringBootTest`
+  web environment is mocked and never binds a real socket. Workarounds to
+  try: temporarily disable the security software's network filtering, or
+  run from a machine/profile without it.
 - **`docker compose up` fails pulling images**: confirm Docker Desktop /
   the Docker daemon is running.
 - **Postgres container unhealthy**: check `docker compose logs postgis` —
