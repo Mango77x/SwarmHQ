@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class DroneService {
@@ -29,10 +30,12 @@ public class DroneService {
     private static final GeometryFactory GEOMETRY_FACTORY = new GeometryFactory(new PrecisionModel(), 4326);
 
     private final DroneRepository droneRepository;
+    private final AlertService alertService;
     private final SimpMessagingTemplate messagingTemplate;
 
-    public DroneService(DroneRepository droneRepository, SimpMessagingTemplate messagingTemplate) {
+    public DroneService(DroneRepository droneRepository, AlertService alertService, SimpMessagingTemplate messagingTemplate) {
         this.droneRepository = droneRepository;
+        this.alertService = alertService;
         this.messagingTemplate = messagingTemplate;
     }
 
@@ -49,7 +52,12 @@ public class DroneService {
      * {@link #listAll()}'s REST snapshot (Sprint 7).
      */
     public void applyTelemetry(String externalId, TelemetryPayload payload) {
-        Drone drone = droneRepository.findByExternalId(externalId)
+        Optional<Drone> existing = droneRepository.findByExternalId(externalId);
+        Integer previousBatteryPercent = existing.map(Drone::getBatteryPercent).orElse(null);
+        DroneStatus previousStatus = existing.map(Drone::getStatus).orElse(null);
+        Point previousPosition = existing.map(Drone::getPosition).orElse(null);
+
+        Drone drone = existing
                 .orElseGet(() -> new Drone(externalId, payload.type(), DroneStatus.valueOf(payload.status()), payload.batteryPercent()));
 
         drone.setPosition(GEOMETRY_FACTORY.createPoint(new Coordinate(payload.lon(), payload.lat())));
@@ -58,6 +66,7 @@ public class DroneService {
         drone.setLastUpdateAt(payload.timestamp() != null ? payload.timestamp() : Instant.now());
 
         droneRepository.save(drone);
+        alertService.evaluate(drone, previousBatteryPercent, previousStatus, previousPosition);
         messagingTemplate.convertAndSend(DRONE_UPDATES_TOPIC, toResponse(drone));
     }
 

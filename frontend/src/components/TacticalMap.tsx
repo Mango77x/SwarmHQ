@@ -3,6 +3,8 @@ import { Map as MapLibreMap, Marker, NavigationControl, setWorkerUrl } from "map
 import "maplibre-gl/dist/maplibre-gl.css";
 import { fetchDrones, type Drone } from "../api/drones";
 import { connectLiveDrones } from "../api/liveDrones";
+import { fetchZones } from "../api/zones";
+import AlertsPanel from "./AlertsPanel";
 
 // Vite doesn't detect maplibre-gl's internal worker construction and
 // never bundles maplibre-gl-worker.mjs as its own asset, so tiles never
@@ -14,6 +16,7 @@ setWorkerUrl(`${import.meta.env.BASE_URL}maplibre-gl-worker.mjs`);
 
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/dark";
 const MADRID_CENTER: [number, number] = [-3.7038, 40.4168];
+const RISK_ZONES_SOURCE_ID = "risk-zones";
 
 const STATUS_COLOR: Record<Drone["status"], string> = {
   PATROLLING: "#22c55e",
@@ -52,6 +55,39 @@ export default function TacticalMap() {
     });
     map.addControl(new NavigationControl(), "top-right");
     mapRef.current = map;
+
+    map.on("load", () => {
+      fetchZones()
+        .then((zones) => {
+          if (!mapRef.current) return;
+          mapRef.current.addSource(RISK_ZONES_SOURCE_ID, {
+            type: "geojson",
+            data: {
+              type: "FeatureCollection",
+              features: zones.map((zone) => ({
+                type: "Feature",
+                properties: { name: zone.name },
+                geometry: { type: "Polygon", coordinates: [zone.ring] },
+              })),
+            },
+          });
+          mapRef.current.addLayer({
+            id: `${RISK_ZONES_SOURCE_ID}-fill`,
+            type: "fill",
+            source: RISK_ZONES_SOURCE_ID,
+            paint: { "fill-color": "#ef4444", "fill-opacity": 0.15 },
+          });
+          mapRef.current.addLayer({
+            id: `${RISK_ZONES_SOURCE_ID}-outline`,
+            type: "line",
+            source: RISK_ZONES_SOURCE_ID,
+            paint: { "line-color": "#ef4444", "line-width": 1.5, "line-opacity": 0.8 },
+          });
+        })
+        .catch(() => {
+          // Non-critical overlay - the map/drones still work without it.
+        });
+    });
 
     return () => {
       map.remove();
@@ -112,6 +148,7 @@ export default function TacticalMap() {
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
+      <AlertsPanel />
       <div
         className="absolute bottom-4 left-4 flex items-center gap-1.5 rounded bg-slate-950/80 px-2 py-1 text-xs text-slate-300 shadow-lg"
         title={live ? "Live updates connected" : "Live updates disconnected - reconnecting…"}
