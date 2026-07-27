@@ -352,37 +352,93 @@ or the network-resilience layer (`SIGNAL_LOST`/`SIGNAL_RECOVERED`); both
 are differentiation layers below, not bugs in Sprint 9. Remaining work is
 the differentiation layers.
 
-### Differentiation layers (post-MVP, in priority order)
+### Differentiation layers (post-MVP, in order)
 
-1. **Security hardening** — MQTT over TLS (self-signed certs) with
-   per-drone/unit authentication instead of an open channel. Highest
-   priority: in defense contexts, communications security is the central
-   concern, not an afterthought, and it's cheap to implement.
-2. **Kalman filtering** — the simulator injects realistic GPS noise; the
-   backend applies a Kalman filter to smooth trajectories before
-   persisting/displaying them. The heaviest algorithmic piece — demonstrates
-   sensor fusion, not just "store what arrives."
-3. **Constrained mission assignment** — a greedy algorithm assigns missions
-   by remaining battery, distance, and priority, instead of moving drones
-   along fixed waypoints. Turns the project from "a panel that shows data"
-   into "a system that makes decisions."
-4. **Network resilience** — the simulator can randomly drop a drone's
-   connection; the system marks it "signal lost," retains its last known
-   position, and reconnects automatically once it returns. Field systems
-   in this domain have to work offline-first; this replicates that
-   constraint.
-5. **Swarm behavior** — two complementary approaches:
+| # | Sprint | Deliverable |
+|---|---|---|
+| 10 |  | Constrained mission assignment engine |
+| 11 |  | Security hardening: MQTT over TLS + per-drone auth |
+| 12 |  | Kalman filtering: simulated GPS noise + backend smoothing |
+| 13 |  | Network resilience: simulated signal loss/reconnect |
+| 14 |  | Swarm behavior: boids + auction-based assignment |
+
+Re-sequenced from the original priority order (security first) agreed
+2026-07-27: mission assignment moved to Sprint 10, ahead of security,
+specifically because it closes a gap Sprint 9 shipped knowingly incomplete
+- `activeMissions`/`missionSuccessRatePercent` on the KPI dashboard are
+`0`/`null` today because nothing creates a `Mission` row yet. Landing the
+assignment engine next makes that dashboard reflect real data instead of
+staying an admittedly-empty tile for another four sprints. Security
+hardening is still next right after it - cheap, and the original
+"communications security is the central concern in this domain" rationale
+below still holds.
+
+1. **Sprint 10 - Constrained mission assignment.**
+   - **MQTT contract additions**: `drones/{externalId}/mission`
+     (backend → simulator, published on assignment - `{missionId, route:
+     [[lon,lat],...], priority}`) and `drones/{externalId}/mission-status`
+     (simulator → backend, published on completion/failure -
+     `{missionId, status: "COMPLETED"|"FAILED", reason?}`).
+   - **Backend**: `POST /api/missions` (create a `PENDING` mission from a
+     requested route + priority) and `GET /api/missions`, matching the
+     thin-controller/service-layer convention everywhere else. A new
+     `MissionAssignmentService` runs on a fixed schedule, greedily
+     matching `PENDING` missions (priority order, then oldest first) to
+     eligible drones (`PATROLLING`, battery above a safety margin) by
+     `distance / (battery / 100)` - cheaper for closer, fuller-battery
+     drones - and publishes the assignment over MQTT. A new
+     `MissionStatusListener` (mirrors `DroneTelemetryListener`) consumes
+     the completion/failure feedback, updates `Mission.status`, and raises
+     an `Event` against the now-*used* `Event.mission` field and the
+     already-declared-but-never-raised `WAYPOINT_REACHED` type (plus a new
+     `MISSION_FAILED`) - both were provisioned in the Sprint 3 schema
+     specifically for this.
+   - **Simulator**: subscribes to its own assignment topic; on receiving
+     one, breaks off its fixed patrol loop to fly the given route
+     (reusing the existing waypoint-interpolation movement code,
+     generalized from a fixed square to an arbitrary point list),
+     publishing `status: "ON_MISSION"` telemetry meanwhile. Aborts
+     (`mission-status: FAILED`) and returns to base exactly like today's
+     low-battery handling if battery hits the threshold mid-mission;
+     otherwise publishes `COMPLETED` on reaching the final waypoint and
+     resumes normal patrolling.
+   - A couple of demo missions are seeded (Flyway, same convention as
+     Sprint 8's risk zone) near the simulator's patrol area so the whole
+     loop - create, assign, fly, complete - is demonstrable on a fresh
+     `docker compose up`, not just via a manual `POST`.
+   - Deliberately out of scope: a mission-creation UI (`POST /api/missions`
+     is enough for this sprint, same as risk zones having no creation UI
+     since Sprint 8); a live `/topic/missions` push (the KPI bar's
+     existing 5s poll is enough for aggregate counts, per Sprint 9's own
+     "polled, not pushed" reasoning).
+2. **Sprint 11 - Security hardening.** MQTT over TLS (self-signed certs)
+   with per-drone/unit authentication instead of an open channel. In
+   defense contexts, communications security is the central concern, not
+   an afterthought, and it's cheap relative to the other layers.
+3. **Sprint 12 - Kalman filtering.** The simulator injects realistic GPS
+   noise; the backend applies a Kalman filter to smooth trajectories
+   before persisting/displaying them. The heaviest algorithmic piece -
+   demonstrates sensor fusion, not just "store what arrives."
+4. **Sprint 13 - Network resilience.** The simulator can randomly drop a
+   drone's connection; the system marks it `SIGNAL_LOST` (an existing
+   `DroneStatus`/`EventType` value, unused until now), retains its last
+   known position, and reconnects automatically (`SIGNAL_RECOVERED`) once
+   it returns. Field systems in this domain have to work offline-first;
+   this replicates that constraint.
+5. **Sprint 14 - Swarm behavior.** Two complementary approaches:
    - **Boids (local coordination):** each simulated drone decides its
-     movement from simple rules relative to its neighbors — separation,
+     movement from simple rules relative to its neighbors - separation,
      alignment, cohesion (Craig Reynolds' classic model).
    - **Auction-based distributed assignment:** instead of the backend
-     centrally assigning missions, simulated drones "bid" on available
-     missions based on their own battery/distance, and the lowest-cost
-     bidder wins.
-   This is what actually justifies the project's name — it should be
-   possible to toggle between "centralized mode" (item 3) and "swarm mode"
-   (boids/auction) as a demonstrable feature, since comparing both approaches
-   is a strong portfolio argument on its own.
+     centrally assigning missions (Sprint 10), simulated drones "bid" on
+     available missions based on their own battery/distance, and the
+     lowest-cost bidder wins.
+   This is what actually justifies the project's name - it should be
+   possible to toggle between "centralized mode" (Sprint 10) and "swarm
+   mode" (boids/auction) as a demonstrable feature, since comparing both
+   approaches is a strong portfolio argument on its own. Deliberately
+   last: needs Sprint 10's centralized mode to exist first, to have
+   something to toggle against/compare with.
 
 ## Working conventions
 
