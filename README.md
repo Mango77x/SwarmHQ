@@ -2,6 +2,9 @@
 
 <p align="center">
   <img alt="STATUS" src="https://img.shields.io/badge/status-all%2014%20sprints%20complete-success?style=for-the-badge">
+  <a href="https://github.com/Mango77x/SwarmHQ/actions/workflows/ci.yml">
+    <img alt="CI" src="https://github.com/Mango77x/SwarmHQ/actions/workflows/ci.yml/badge.svg?style=for-the-badge">
+  </a>
   <a href="HELP.md">
     <img alt="HELP" src="https://img.shields.io/badge/help-HELP.md-informational?style=for-the-badge">
   </a>

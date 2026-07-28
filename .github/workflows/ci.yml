@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend tests (Spring Boot)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      # Same infra the "Running the infrastructure" section of HELP.md
+      # describes for local dev - the backend test suite (./mvnw test)
+      # connects to it directly from the runner, exactly like a developer
+      # running tests locally, rather than reimplementing it as separate
+      # CI service containers.
+      - name: Copy .env.example to .env
+        run: cp .env.example .env
+
+      - name: Start Postgres/PostGIS + Mosquitto
+        run: docker compose up -d --wait postgis mosquitto-setup mosquitto
+
+      # mosquitto has no Docker healthcheck of its own (see docker-compose.yml),
+      # so --wait above only confirms the container is running, not that its
+      # TLS listener is actually accepting connections yet - MqttConfig's
+      # connect() call has no retry of its own, so a Spring context that
+      # starts before the port is bound fails every test outright.
+      - name: Wait for Mosquitto to accept connections on 8883
+        run: |
+          for i in $(seq 1 30); do
+            if (exec 3<>/dev/tcp/127.0.0.1/8883) 2>/dev/null; then
+              exec 3<&- 3>&-
+              echo "Mosquitto is accepting connections"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Mosquitto did not start accepting connections within 30s"
+          docker compose logs mosquitto mosquitto-setup
+          exit 1
+
+      - name: Run backend test suite
+        working-directory: backend
+        run: ./mvnw --batch-mode test
+
+      - name: Upload surefire reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-surefire-reports
+          path: backend/target/surefire-reports
+
+      - name: Tear down infrastructure
+        if: always()
+        run: docker compose down -v
+
+  simulator:
+    name: Simulator tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: simulator/requirements.txt
+
+      - name: Install dependencies
+        working-directory: simulator
+        run: pip install -r requirements.txt
+
+      # Only boids.py's pure math is unit-tested (test_boids.py) - it needs
+      # no MQTT broker or database, unlike main.py's own runtime.
+      - name: Run pytest
+        working-directory: simulator
+        run: pytest -q
+
+  frontend:
+    name: Frontend build (typecheck + lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      # No frontend unit tests exist yet - tsc -b (via build) plus lint is
+      # the real signal available today: a broken build or type error
+      # currently only surfaces locally, this catches it before merge too.
+      - name: Build (typecheck + bundle)
+        working-directory: frontend
+        run: npm run build
