@@ -809,6 +809,36 @@ below still holds.
    last: needed Sprint 10's centralized mode to exist first, to have
    something to toggle against/compare with.
 
+### C2 command layer (proposed, not scheduled)
+
+"C2" means command and control: issuing high-level orders, not manual
+piloting (a joystick/real-time flight control would be a different kind
+of project, more simulator than C2, and is explicitly out of scope).
+The live mode toggle (Sprint 16) is the first real order the app can
+issue; these are the next ones, in priority order. None of this is
+scheduled to a sprint yet, just written down so it doesn't get lost.
+
+1. **Dispatch missions from the map.** `POST /api/missions` already
+   exists (Sprint 10 deliberately shipped it without a UI, same as risk
+   zones), so the backend work is done. What's missing is the frontend:
+   pick a start/end point on the map, choose a priority, send it. The
+   most obviously-missing order given the backend already supports it.
+2. **Cancel a mission / recall a drone (RTB).** Doesn't exist on either
+   side yet. Right now a mission only reaches a terminal state via the
+   simulator's own completion logic; there's no operator override to
+   abort one in flight or order its drone back to base. The sharpest
+   gap in the current design: orders can be given but never revoked.
+3. **Manual assignment override.** A "force-assign this drone to this
+   mission" action that bypasses both the centralized engine and the
+   auction, the most literally "command and control" of the four but
+   also the most work: it needs a third assignment path distinct from
+   MissionAssignmentService and AuctionCoordinatorService, not a
+   variant of either.
+4. **Manage restricted zones from the map.** Zones exist and already
+   drive alerts (Sprint 8), but are only ever seeded via migration.
+   Letting an operator declare a new no-fly zone at runtime fits the
+   C2 theme, lowest priority of the four since nothing depends on it.
+
 ## Continuous integration
 
 Implemented as of Sprint 15 (`.github/workflows/ci.yml`) - three independent
