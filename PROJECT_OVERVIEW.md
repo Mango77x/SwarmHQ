@@ -449,10 +449,10 @@ knowingly incomplete (see Roadmap below):
 Implemented as of Sprint 14
 (`backend/src/main/java/com/swarmhq/service/AuctionCoordinatorService.java`,
 `backend/src/main/java/com/swarmhq/mqtt/MissionBidListener.java`,
-`simulator/boids.py`) - the final differentiation layer, and the one that
-actually justifies the project's name. Two independent halves, both
-toggleable, both off by default so the existing centralized-mode behavior
-from Sprints 5-13 is unaffected unless explicitly opted into:
+`simulator/boids.py`), made live-toggleable in Sprint 16 (see "Live mode
+toggle" below) - the differentiation layer that actually justifies the
+project's name. Two halves, centralized by default so existing behavior
+from Sprints 5-13 is unaffected unless explicitly switched:
 
 - **Boids flocking** (`SWARM_MODE=true` in the simulator): patrolling
   drones stop following their fixed waypoint square and instead move by
@@ -474,14 +474,15 @@ from Sprints 5-13 is unaffected unless explicitly opted into:
   battery/mission checks run, so a drone that just broke off to `RETURNING`
   or is flying an assigned mission always ignores the flock and follows its
   own route, same priority order as before this sprint.
-- **Auction-based distributed assignment** (`swarmhq.mission-assignment.mode
-  =auction` on the backend): the decentralized counterpart to Sprint 10's
-  centralized engine, mutually exclusive with it via
-  `@ConditionalOnProperty` - exactly one of `MissionAssignmentService`
-  (`mode=centralized`, the default) or `AuctionCoordinatorService`
-  (`mode=auction`) is ever active in a given run, so the two approaches can
-  be toggled and compared rather than always running side by side.
-  `AuctionCoordinatorService` is a `@Scheduled` watchdog (1s) that opens an
+- **Auction-based distributed assignment**: the decentralized counterpart
+  to Sprint 10's centralized engine. Both `MissionAssignmentService` and
+  `AuctionCoordinatorService` are always registered beans (Sprint 16
+  dropped the `@ConditionalOnProperty` this used to lean on) - each checks
+  `MissionAssignmentModeHolder` on its own tick and no-ops on whichever one
+  isn't currently active, so exactly one strategy ever actually assigns a
+  mission at a time without either bean's existence being fixed for the
+  app's whole lifetime. `AuctionCoordinatorService` is a `@Scheduled`
+  watchdog (1s) that opens an
   auction (broadcasts the mission on `missions/available`) for every
   `PENDING` mission with no auction already open for it, and closes any
   auction older than `swarmhq.mission-assignment.auction-window-seconds`
@@ -493,9 +494,10 @@ from Sprints 5-13 is unaffected unless explicitly opted into:
   identical code - flip the drone `ON_MISSION`, publish
   `drones/{externalId}/mission`, raise the `STATUS_CHANGE` alert - and only
   differ in *how a drone is chosen*, not in what happens once one is.
-  Each patrolling drone (simulator side, only when `SWARM_MODE=true`)
-  subscribes to `missions/available` and bids on anything it hears about
-  cost-per-mission, `distance / (battery_percent / 100.0)`, deliberately
+  Every drone (simulator side, subscribed unconditionally since Sprint 16 -
+  see "Live mode toggle") bids on anything it hears on `missions/available`
+  while the live mode is auction, cost-per-mission
+  `distance / (battery_percent / 100.0)`, deliberately
   mirroring the same distance-over-battery shape as
   `DroneRepository.findBestForMission`'s own `ORDER BY`, so a drone bids on
   roughly the criteria the centralized engine would have judged it by, and
@@ -513,19 +515,58 @@ from Sprints 5-13 is unaffected unless explicitly opted into:
   idempotent" rule as the telemetry/mission-status pair - a bid arriving
   for a mission whose auction already closed, or from a drone no longer
   `PATROLLING`, is silently ignored rather than treated as an error.
-- **The two flags are independent on purpose but only useful paired**:
-  `SWARM_MODE=true` with the backend still in `centralized` mode just means
-  drones fly boids patrol patterns but still receive direct assignments
-  as before; `mode=auction` with `SWARM_MODE=false` just means auctions
-  keep reopening forever with zero bids, since no drone is listening for
-  `missions/available`. Pair both (see HELP.md) to see the full "swarm
-  mode" behavior.
-- Verified live end-to-end: an auction opened for a real `PENDING` mission,
-  a bid was received and was the lowest of those that arrived, the mission
-  was assigned to that drone via the exact same `drones/{externalId}/mission`
-  contract centralized mode uses, and the drone accepted and flew it;
-  separately, repeated position polls of patrolling drones showed organic
-  drift consistent with flocking rather than the old fixed-square pattern.
+- Verified live end-to-end (Sprint 14): an auction opened for a real
+  `PENDING` mission, a bid was received and was the lowest of those that
+  arrived, the mission was assigned to that drone via the exact same
+  `drones/{externalId}/mission` contract centralized mode uses, and the
+  drone accepted and flew it; separately, repeated position polls of
+  patrolling drones showed organic drift consistent with flocking rather
+  than the old fixed-square pattern.
+
+### Live mode toggle (Sprint 16)
+
+Sprint 14 shipped both halves as environment variables a developer had to
+set and *keep paired* before restarting everything - `mode=auction` on the
+backend did nothing useful without also remembering `SWARM_MODE=true` on
+the simulator, and neither could be flipped without a restart. Sprint 16
+replaces that with one live switch:
+
+- **`MissionAssignmentModeHolder`** (`backend/src/main/java/com/swarmhq/service/MissionAssignmentModeHolder.java`)
+  holds the current mode as a mutable `AtomicReference`, seeded from
+  `swarmhq.mission-assignment.mode` (still the *initial* value at startup,
+  same property as before) but changeable at runtime from here on.
+  `MissionAssignmentService` and `AuctionCoordinatorService` both read it
+  fresh on every tick instead of either one being permanently wired in or
+  out at boot.
+- **`GET`/`PUT /api/mode`** (`MissionAssignmentModeController`) lets
+  anything - the frontend, `curl`, a script - read or switch the mode.
+  `PUT` body: `{"mode": "auction"}` or `{"mode": "centralized"}`; an
+  unrecognized value is a 400.
+- **Every change is broadcast, not just held in memory**: a retained MQTT
+  message on `system/mission-assignment-mode` (`{"mode": "auction"}`,
+  published on backend startup too, not only on future changes, so a
+  simulator connecting after the fact still learns the real mode
+  immediately) and a STOMP broadcast on `/topic/mode` for the frontend.
+- **The simulator follows the backend live**, not just at its own startup:
+  every drone client unconditionally subscribes to both `missions/available`
+  and `system/mission-assignment-mode` now (Sprint 14's `SWARM_MODE`-gated
+  subscription is gone). `SWARM_MODE` is still read, but only as the
+  *fallback* value used for the handful of ticks before that retained
+  message actually arrives - the moment it does, it wins, for both halves
+  at once: the same `_swarm_mode_active` flag gates boids movement in the
+  tick loop and whether a drone bids in `_on_mission_available`. This is
+  what actually eliminates the old "you had to remember to pair the two
+  flags" caveat - one broadcast now drives both.
+- **The frontend** (`ModeToggle.tsx`) shows the live mode and switches it
+  with one click - `fetchMode`/`updateMode` (`GET`/`PUT /api/mode`) plus
+  `connectLiveMode` (subscribes `/topic/mode`) so a change from anywhere
+  else (another tab, a `curl` call) still updates the button.
+- Verified live end-to-end, no restarts anywhere: flipped to auction via
+  the REST endpoint, the backend opened an auction for a real mission and
+  assigned it to the drone that bid, and *separately* patrolling drones'
+  positions started drifting via boids in the same run - both from a
+  single switch. Flipped back and both stopped. Repeated the same round
+  trip by clicking the actual button in the running frontend.
 
 ## Dashboard KPIs
 
@@ -581,6 +622,10 @@ Implemented as of Sprint 6:
   starts `PENDING`, same "not this controller's job" reasoning as
   everywhere else in this project - `MissionAssignmentService`'s scheduled
   pass, not the request itself, decides who flies it).
+- `GET`/`PUT /api/mode` (Sprint 16, `MissionAssignmentModeController`) -
+  read or switch the live mission-assignment mode (`"centralized"` or
+  `"auction"`, see "Live mode toggle" under "Swarm behavior" above).
+  `PUT` with anything else is a 400.
 
 ## WebSocket contract
 
@@ -604,6 +649,11 @@ Implemented as of Sprint 7
 - A second topic, `/topic/events` (`AlertService.EVENT_UPDATES_TOPIC`,
   Sprint 8) - every `Event` `AlertService` raises is broadcast here,
   the same `EventResponse` shape `GET /api/events` returns.
+- A third topic, `/topic/mode` (`MissionAssignmentModeHolder.MODE_UPDATES_TOPIC`,
+  Sprint 16) - `{"mode": "centralized" | "auction"}`, broadcast whenever
+  the live mission-assignment mode changes, so every connected frontend
+  tab's toggle stays in sync regardless of which tab (or `curl` call)
+  actually changed it.
 - No `/app`-prefixed client-to-server destinations exist yet - drones only
   broadcast telemetry they generate themselves; nothing today has a
   server-side handler needed for a client to *send* something over this
@@ -642,6 +692,13 @@ Vite + Tailwind 4 + `maplibre-gl` + `@stomp/stompjs` + `sockjs-client`):
   why) and rendering four tiles: active missions, mission success rate,
   alerts in the last hour, and drones at critical battery. The last two
   highlight red when non-zero.
+- **Live mode toggle (Sprint 16)**: `ModeToggle`
+  (`frontend/src/components/ModeToggle.tsx`), also in the header - the
+  same REST-baseline-then-STOMP-push pattern as the map and alerts panel
+  (`GET /api/mode` once, then `/topic/mode`), except this one can also
+  *write*: clicking it calls `PUT /api/mode` to flip the live strategy.
+  Styled to match the project's own orange/slate branding when swarm
+  (auction) mode is active, slate when centralized.
 - **Build/serve integration**: `frontend/` is a self-contained Vite
   project (its own `npm run dev`/`npm run build`, proxying `/api` to
   `localhost:8080` in dev). It is *not* part of the backend's default

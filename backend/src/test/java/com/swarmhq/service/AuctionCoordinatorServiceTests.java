@@ -33,22 +33,26 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * pre-existing PENDING missions/PATROLLING drones, {@code @Transactional}
  * rollback) - see that class for the full reasoning.
  *
- * {@code @DirtiesContext}: this {@code mode=auction} property set is
- * different from every other test class's (default {@code centralized}),
- * so Spring caches it as a second, simultaneously-alive ApplicationContext
- * rather than reusing the shared one - complete with its own live,
- * subscribed MQTT connection. Without this, that connection outlives this
- * test class for the rest of the suite, and its (unconditional,
- * mode-agnostic) MissionStatusListener bean double-processes any
- * drones/+/mission-status message a *later* test class publishes,
- * producing a real, hard-to-place "expected 1 event but was 2" failure
- * in a completely unrelated test. Found by running MissionStatusListenerTests
- * in isolation (passed) vs. in the full suite (failed) - the tell that
- * this was cross-test-context pollution, not a bug in that test itself.
+ * Doesn't need {@code mission-assignment.mode=auction} (Sprint 16 made it
+ * a runtime-mutable {@code MissionAssignmentModeHolder}, not a startup
+ * property) - every method under test here is called directly, never
+ * through the real {@code @Scheduled tick()} that actually checks the
+ * mode, so the mode holder is irrelevant to this class either way.
+ *
+ * {@code @DirtiesContext}: {@code auction-window-seconds=0} is still a
+ * property set no other test class shares, so Spring still caches it as
+ * a second, simultaneously-alive ApplicationContext with its own live
+ * MQTT connection. Without this, that connection outlives this test class
+ * for the rest of the suite, and its (unconditional) MissionStatusListener
+ * bean double-processes any drones/+/mission-status message a *later*
+ * test class publishes, producing a real, hard-to-place "expected 1 event
+ * but was 2" failure in a completely unrelated test. Found by running
+ * MissionStatusListenerTests in isolation (passed) vs. in the full suite
+ * (failed) - the tell that this was cross-test-context pollution, not a
+ * bug in that test itself.
  */
 @SpringBootTest
 @TestPropertySource(properties = {
-        "swarmhq.mission-assignment.mode=auction",
         "swarmhq.mission-assignment.scheduler-enabled=false",
         "swarmhq.mission-assignment.auction-window-seconds=0"
 })

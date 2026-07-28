@@ -182,39 +182,44 @@ disable, not needed normally), `MQTT_CA_CERT_PATH`, `MQTT_DRONE_PASSWORD`,
 variables below) will fail to authenticate - provision more identities
 first.
 
-### Running in swarm mode (Sprint 14)
+### Running in swarm mode (Sprint 14, live-toggleable since Sprint 16)
 
-Off by default - a normal run stays in the same "centralized assignment +
-fixed waypoint routes" behavior every previous sprint used. Swarm mode has
-two independent halves that only do something useful together:
+Centralized by default - a normal run stays in the same "centralized
+assignment + fixed waypoint routes" behavior every earlier sprint used.
+Switching to swarm mode (boids flocking + auction bidding, both together)
+no longer needs any restart or env var - it's a live toggle:
 
-1. **Backend**: set `MISSION_ASSIGNMENT_MODE=auction` in `.env` before
-   `docker compose up -d --build backend` (or
-   `swarmhq.mission-assignment.mode=auction` if running
-   `./mvnw spring-boot:run` directly, e.g.
-   `./mvnw spring-boot:run -Dspring-boot.run.arguments=--swarmhq.mission-assignment.mode=auction`).
-   This disables `MissionAssignmentService` and enables
-   `AuctionCoordinatorService` instead - see "Swarm behavior" in
-   PROJECT_OVERVIEW.md for how the auction itself works.
-2. **Simulator**: set `SWARM_MODE=true` before `main.py`, e.g.
-   ```bash
-   SWARM_MODE=true ./.venv/Scripts/python.exe main.py   # macOS/Linux: export SWARM_MODE=true first
-   ```
-   (on Windows PowerShell: `$env:SWARM_MODE = "true"` in the same shell
-   before running `main.py`). This switches patrolling drones to boids
-   flocking movement and makes them subscribe/bid on `missions/available`.
-   Tunable via `BOIDS_NEIGHBOR_RADIUS_DEGREES`, `BOIDS_SEPARATION_WEIGHT`,
-   `BOIDS_ALIGNMENT_WEIGHT`, `BOIDS_COHESION_WEIGHT`, `BOIDS_CENTER_WEIGHT`,
-   `BOIDS_MAX_STEP_DEGREES` (see `simulator/config.py` for defaults/rationale).
+- **From the frontend**: click the mode button in the header (next to the
+  KPI bar). It shows the current mode and flips it with one click.
+- **From the API**: `curl -X PUT http://localhost:8080/api/mode -H "Content-Type: application/json" -d '{"mode":"auction"}'`
+  (or `{"mode":"centralized"}` to switch back). `GET /api/mode` reads the
+  current value without changing anything.
 
-**Pair both, or nothing visibly changes**: `SWARM_MODE=true` alone just
-means drones fly boids patrol patterns while still waiting for direct
-centralized assignments as before (harmless, just not the full picture);
-`MISSION_ASSIGNMENT_MODE=auction` alone means every auction just keeps
-reopening every tick with zero bids forever, since no drone is listening
-for `missions/available` - missions will appear stuck `PENDING` and never
-get assigned. If missions aren't being picked up with auction mode on,
-check the simulator's own `SWARM_MODE` first before suspecting the backend.
+Either one flips both halves at once, for every already-running simulator
+instance, with nothing to restart: `MissionAssignmentModeHolder`
+broadcasts the change on a retained MQTT topic
+(`system/mission-assignment-mode`) every drone client is subscribed to, so
+patrolling drones start flocking via boids *and* bidding on
+`missions/available` from the same signal - see "Live mode toggle" in
+PROJECT_OVERVIEW.md for exactly how that wiring works.
+
+The old environment variables still exist, but only as the *initial*
+value each side starts with before anything is ever toggled:
+
+- `MISSION_ASSIGNMENT_MODE=auction` in `.env` (backend, before
+  `docker compose up -d --build backend`) or
+  `swarmhq.mission-assignment.mode=auction` (`./mvnw spring-boot:run
+  -Dspring-boot.run.arguments=--swarmhq.mission-assignment.mode=auction`) -
+  what the mode holder starts as, not what it's stuck at.
+- `SWARM_MODE=true` before `main.py` (simulator) - the fallback used for
+  the handful of ticks before the retained MQTT message actually arrives;
+  once it does, the backend's live value wins regardless of what this was
+  set to.
+
+Boids tuning is unaffected by any of this - still
+`BOIDS_NEIGHBOR_RADIUS_DEGREES`, `BOIDS_SEPARATION_WEIGHT`,
+`BOIDS_ALIGNMENT_WEIGHT`, `BOIDS_COHESION_WEIGHT`, `BOIDS_CENTER_WEIGHT`,
+`BOIDS_MAX_STEP_DEGREES` (see `simulator/config.py` for defaults/rationale).
 
 ## Running the frontend
 
@@ -259,7 +264,7 @@ environment (your machine, CI, etc.) keeps its own values.
 | `MQTT_BACKEND_PASSWORD` | `changeme` | the backend's own MQTT identity's password — change it, even locally |
 | `MQTT_DRONE_PASSWORD` | `changeme` | shared by every simulated drone identity (`drone-1`, `drone-2`, ...) — see "MQTT security" in PROJECT_OVERVIEW.md for why one shared password is an acceptable simplification here |
 | `MQTT_MAX_PROVISIONED_DRONES` | `20` | how many `drone-N` identities `mosquitto-setup` pre-provisions — raise this (and re-provision, see "Running the infrastructure") if running with `DRONE_COUNT` above 20 |
-| `MISSION_ASSIGNMENT_MODE` | `centralized` | backend mission-assignment strategy (Sprint 14) — `centralized` (Sprint 10's engine) or `auction` (drones bid, lowest cost wins). See "Running in swarm mode" below — this alone does nothing without the simulator's own `SWARM_MODE=true` |
+| `MISSION_ASSIGNMENT_MODE` | `centralized` | the mode holder's *initial* value only (Sprint 16) — `centralized` (Sprint 10's engine) or `auction` (drones bid, lowest cost wins). Switch it live afterward via the frontend toggle or `PUT /api/mode` instead of restarting - see "Running in swarm mode" below |
 
 ## Known limitations (tracked in the roadmap, not bugs)
 

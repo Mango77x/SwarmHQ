@@ -23,7 +23,11 @@ import java.util.List;
  * This is the {@code centralized} assignment strategy - the alternative,
  * {@code auction} (Sprint 14, {@link AuctionCoordinatorService}), only
  * decides differently *which* drone gets a mission; both hand it off the
- * same way via {@link MissionAssigner}.
+ * same way via {@link MissionAssigner}. Which one is actually active is
+ * decided by {@link MissionAssignmentModeHolder}, checked fresh on every
+ * tick rather than fixed for the app's lifetime - this bean and
+ * {@code AuctionCoordinatorService} both always exist, they just no-op on
+ * whichever tick isn't theirs.
  */
 @Service
 public class MissionAssignmentService {
@@ -40,18 +44,17 @@ public class MissionAssignmentService {
     private final MissionRepository missionRepository;
     private final DroneRepository droneRepository;
     private final MissionAssigner missionAssigner;
+    private final MissionAssignmentModeHolder modeHolder;
     private final boolean schedulerEnabled;
-    private final boolean centralizedModeActive;
 
     public MissionAssignmentService(MissionRepository missionRepository, DroneRepository droneRepository,
-            MissionAssigner missionAssigner,
-            @Value("${swarmhq.mission-assignment.scheduler-enabled:true}") boolean schedulerEnabled,
-            @Value("${swarmhq.mission-assignment.mode:centralized}") String mode) {
+            MissionAssigner missionAssigner, MissionAssignmentModeHolder modeHolder,
+            @Value("${swarmhq.mission-assignment.scheduler-enabled:true}") boolean schedulerEnabled) {
         this.missionRepository = missionRepository;
         this.droneRepository = droneRepository;
         this.missionAssigner = missionAssigner;
+        this.modeHolder = modeHolder;
         this.schedulerEnabled = schedulerEnabled;
-        this.centralizedModeActive = "centralized".equals(mode);
     }
 
     /**
@@ -59,14 +62,13 @@ public class MissionAssignmentService {
      * a background tick racing against tests that assert on Mission/KPI
      * state would make them flaky, since MissionAssignmentServiceTests
      * already calls {@link #assignPendingMissions()} directly and doesn't
-     * need the schedule itself under test. Also disabled outright when
-     * {@code swarmhq.mission-assignment.mode=auction} - both strategies
-     * running at once would race each other to claim the same PENDING
-     * mission.
+     * need the schedule itself under test. Also a no-op whenever the mode
+     * holder currently says {@code AUCTION} - both strategies running at
+     * once would race each other to claim the same PENDING mission.
      */
     @Scheduled(fixedDelay = 5000)
     void scheduledAssignment() {
-        if (schedulerEnabled && centralizedModeActive) {
+        if (schedulerEnabled && modeHolder.get() == MissionAssignmentModeHolder.Mode.CENTRALIZED) {
             assignPendingMissions();
         }
     }
