@@ -10,6 +10,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.TestPropertySource;
 
 import java.time.Instant;
 import java.util.List;
@@ -25,8 +26,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * telemetry readings and asserts the *count* of matching events, not just
  * their presence - the whole point is exactly one event per crossing, not
  * one per tick spent past it.
+ *
+ * scheduler-enabled=false (same convention as MissionAssignmentServiceTests/
+ * KpiServiceTests): this test's own drone is PATROLLING with a high
+ * battery, an eligible target for MissionAssignmentService's real
+ * scheduled pass against the seeded demo missions (V4). Without this, a
+ * background tick can assign it a mission mid-test - a second, unplanned
+ * STATUS_CHANGE event (found via a clean-database CI run; a local dev DB
+ * with years of accumulated leftover rows apparently never left the
+ * seeded missions available long enough to hit this) and, on cleanup, a
+ * foreign-key violation deleting a drone a real Mission still references.
  */
 @SpringBootTest
+@TestPropertySource(properties = "swarmhq.mission-assignment.scheduler-enabled=false")
 class AlertServiceTests {
 
     private static final String EXTERNAL_ID = "alert-service-test";
