@@ -196,6 +196,15 @@ Implemented as of Sprint 4
   not a new fact. `DroneTelemetryListener` doesn't need an equivalent
   guard - reapplying the same telemetry reading twice is naturally a
   no-op (it just upserts the same lat/lon/battery/status again).
+  A first attempt at this guard (read `mission.getStatus()`, then write)
+  was itself racy under genuinely concurrent redeliveries - both could
+  read `ACTIVE` before either write committed, so both proceeded and
+  raised a duplicate `Event` (found and fixed during Sprint 14's own
+  verification pass, see `MissionRepository.updateStatusIfActive` and
+  HELP.md's Troubleshooting). The fix makes the check-and-transition one
+  atomic `UPDATE ... WHERE status = 'ACTIVE'` instead of two separate
+  steps, so Postgres' own row lock - not application code - is what
+  guarantees only one redelivery ever wins.
 
 ## MQTT security
 
@@ -435,6 +444,89 @@ knowingly incomplete (see Roadmap below):
   in `MissionAssignmentServiceTests`/`KpiServiceTests` so a background tick
   can't race their own assertions.
 
+## Swarm behavior
+
+Implemented as of Sprint 14
+(`backend/src/main/java/com/swarmhq/service/AuctionCoordinatorService.java`,
+`backend/src/main/java/com/swarmhq/mqtt/MissionBidListener.java`,
+`simulator/boids.py`) - the final differentiation layer, and the one that
+actually justifies the project's name. Two independent halves, both
+toggleable, both off by default so the existing centralized-mode behavior
+from Sprints 5-13 is unaffected unless explicitly opted into:
+
+- **Boids flocking** (`SWARM_MODE=true` in the simulator): patrolling
+  drones stop following their fixed waypoint square and instead move by
+  Craig Reynolds' three classic rules - separation (steer away from
+  neighbors that are too close), alignment (match the average heading of
+  nearby drones), cohesion (steer toward the average position of nearby
+  drones) - plus a gentle pull back toward the patrol area's center so the
+  flock doesn't wander off indefinitely. `simulator/boids.py` is pure,
+  dependency-free math operating directly in lat/lon degree space (with a
+  `cos(latitude)` correction so a degree of longitude and a degree of
+  latitude aren't treated as equal distances) and is unit-tested in
+  isolation (`simulator/test_boids.py`, 5 cases) rather than only exercised
+  indirectly through the full simulator loop. `main.py`'s tick loop derives
+  each patrolling drone's velocity from its last two positions (there's no
+  other source of "heading" for a waypoint-less drone), computes one
+  `boids.compute_step` per tick over every currently-patrolling drone at
+  once, and passes the result into `Drone.tick(position_override=...)` -
+  applied only if the drone is still `PATROLLING` after its own
+  battery/mission checks run, so a drone that just broke off to `RETURNING`
+  or is flying an assigned mission always ignores the flock and follows its
+  own route, same priority order as before this sprint.
+- **Auction-based distributed assignment** (`swarmhq.mission-assignment.mode
+  =auction` on the backend): the decentralized counterpart to Sprint 10's
+  centralized engine, mutually exclusive with it via
+  `@ConditionalOnProperty` - exactly one of `MissionAssignmentService`
+  (`mode=centralized`, the default) or `AuctionCoordinatorService`
+  (`mode=auction`) is ever active in a given run, so the two approaches can
+  be toggled and compared rather than always running side by side.
+  `AuctionCoordinatorService` is a `@Scheduled` watchdog (1s) that opens an
+  auction (broadcasts the mission on `missions/available`) for every
+  `PENDING` mission with no auction already open for it, and closes any
+  auction older than `swarmhq.mission-assignment.auction-window-seconds`
+  (default 3s) by picking the lowest bid received - or leaving the mission
+  `PENDING` for the next tick to retry if none arrived. The winning bid is
+  handed to the same `MissionAssigner` (extracted this sprint from what was
+  previously private logic inside `MissionAssignmentService`) that
+  centralized mode uses, so both strategies assign missions through
+  identical code - flip the drone `ON_MISSION`, publish
+  `drones/{externalId}/mission`, raise the `STATUS_CHANGE` alert - and only
+  differ in *how a drone is chosen*, not in what happens once one is.
+  Each patrolling drone (simulator side, only when `SWARM_MODE=true`)
+  subscribes to `missions/available` and bids on anything it hears about
+  cost-per-mission, `distance / (battery_percent / 100.0)`, deliberately
+  mirroring the same distance-over-battery shape as
+  `DroneRepository.findBestForMission`'s own `ORDER BY`, so a drone bids on
+  roughly the criteria the centralized engine would have judged it by, and
+  the lowest bid winning is doing the same job that engine's `ORDER BY
+  ... LIMIT 1` does, just without a single component that can see every
+  drone at once.
+- **New MQTT topics** (see "MQTT contract" above for the existing pair):
+  `missions/available` (backend → simulator, one broadcast per opened
+  auction: `{"missionId": 5, "lat": 40.42, "lon": -3.70, "priority":
+  "HIGH"}`) and `missions/{missionId}/bids` (simulator → backend, one
+  publish per bidding drone: `{"droneId": "drone-2", "cost": 143.7}`),
+  subscribed by the backend as the wildcard `missions/+/bids`
+  (`MissionBidListener`, missionId parsed out of the topic itself rather
+  than carried in the payload). Both are QoS1, same "listeners must be
+  idempotent" rule as the telemetry/mission-status pair - a bid arriving
+  for a mission whose auction already closed, or from a drone no longer
+  `PATROLLING`, is silently ignored rather than treated as an error.
+- **The two flags are independent on purpose but only useful paired**:
+  `SWARM_MODE=true` with the backend still in `centralized` mode just means
+  drones fly boids patrol patterns but still receive direct assignments
+  as before; `mode=auction` with `SWARM_MODE=false` just means auctions
+  keep reopening forever with zero bids, since no drone is listening for
+  `missions/available`. Pair both (see HELP.md) to see the full "swarm
+  mode" behavior.
+- Verified live end-to-end: an auction opened for a real `PENDING` mission,
+  a bid was received and was the lowest of those that arrived, the mission
+  was assigned to that drone via the exact same `drones/{externalId}/mission`
+  contract centralized mode uses, and the drone accepted and flew it;
+  separately, repeated position polls of patrolling drones showed organic
+  drift consistent with flocking rather than the old fixed-square pattern.
+
 ## Dashboard KPIs
 
 Implemented as of Sprint 9
@@ -603,7 +695,7 @@ the differentiation layers.
 | 11 | ✅ | Security hardening: MQTT over TLS + per-drone auth |
 | 12 | ✅ | Kalman filtering: simulated GPS noise + backend smoothing |
 | 13 | ✅ | Network resilience: simulated signal loss/reconnect |
-| 14 |  | Swarm behavior: boids + auction-based assignment |
+| 14 | ✅ | Swarm behavior: boids + auction-based assignment |
 
 Re-sequenced from the original priority order (security first) agreed
 2026-07-27: mission assignment moved to Sprint 10, ahead of security,
@@ -643,7 +735,9 @@ below still holds.
    known position, and reconnects automatically (`SIGNAL_RECOVERED`) once
    it returns. Field systems in this domain have to work offline-first;
    this replicates that constraint.
-5. **Sprint 14 - Swarm behavior.** Two complementary approaches:
+5. **Sprint 14 - Swarm behavior.** ✅ Done - see "Swarm behavior" above for
+   the implementation. Two complementary approaches, both toggleable
+   against Sprint 10's centralized mode:
    - **Boids (local coordination):** each simulated drone decides its
      movement from simple rules relative to its neighbors - separation,
      alignment, cohesion (Craig Reynolds' classic model).
@@ -651,11 +745,11 @@ below still holds.
      centrally assigning missions (Sprint 10), simulated drones "bid" on
      available missions based on their own battery/distance, and the
      lowest-cost bidder wins.
-   This is what actually justifies the project's name - it should be
-   possible to toggle between "centralized mode" (Sprint 10) and "swarm
-   mode" (boids/auction) as a demonstrable feature, since comparing both
+   This is what actually justifies the project's name - it's possible to
+   toggle between "centralized mode" (Sprint 10) and "swarm mode"
+   (boids/auction) as a demonstrable feature, since comparing both
    approaches is a strong portfolio argument on its own. Deliberately
-   last: needs Sprint 10's centralized mode to exist first, to have
+   last: needed Sprint 10's centralized mode to exist first, to have
    something to toggle against/compare with.
 
 ## Working conventions

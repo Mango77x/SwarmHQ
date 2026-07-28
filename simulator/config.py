@@ -47,3 +47,28 @@ GPS_NOISE_STD_DEGREES = GPS_NOISE_STD_METERS / 111_320.0
 SIGNAL_LOSS_CHANCE_PER_TICK = float(os.environ.get("SIGNAL_LOSS_CHANCE_PER_TICK", "0.01"))
 SIGNAL_LOSS_MIN_TICKS = int(os.environ.get("SIGNAL_LOSS_MIN_TICKS", "5"))
 SIGNAL_LOSS_MAX_TICKS = int(os.environ.get("SIGNAL_LOSS_MAX_TICKS", "15"))
+
+# Sprint 14: the two halves of "swarm mode" - patrolling movement becomes
+# boids flocking instead of each drone's own fixed square route, and idle
+# (PATROLLING) drones bid on missions/available instead of waiting for a
+# direct centralized assignment. Pair with the backend's own
+# swarmhq.mission-assignment.mode=auction - the bidding half of this flag
+# does nothing on its own if the backend is still deciding centrally, and
+# vice versa an auction with SWARM_MODE=false backends just never gets bids.
+SWARM_MODE = os.environ.get("SWARM_MODE", "false").lower() == "true"
+
+# Degrees, not meters, throughout - boids.py works directly in lat/lon
+# space (see its own module docstring for the longitude-scaling reasoning),
+# so these are already the right unit for BoidsParams without conversion.
+BOIDS_NEIGHBOR_RADIUS_DEGREES = float(os.environ.get("BOIDS_NEIGHBOR_RADIUS_DEGREES", "0.02"))
+BOIDS_SEPARATION_WEIGHT = float(os.environ.get("BOIDS_SEPARATION_WEIGHT", "1.5"))
+BOIDS_ALIGNMENT_WEIGHT = float(os.environ.get("BOIDS_ALIGNMENT_WEIGHT", "1.0"))
+BOIDS_COHESION_WEIGHT = float(os.environ.get("BOIDS_COHESION_WEIGHT", "1.0"))
+# Gentle on purpose - just enough to keep the flock from wandering off
+# indefinitely, not so strong it overrides separation/alignment/cohesion
+# and collapses the flock onto a single point.
+BOIDS_CENTER_WEIGHT = float(os.environ.get("BOIDS_CENTER_WEIGHT", "0.5"))
+# ~0.0008 deg/tick is comparable to the original fixed-route patrol speed
+# (a 0.006 deg square side over TICKS_PER_SEGMENT=10 ticks, ~0.0006 deg/tick)
+# - similar pace, not a race and not a crawl.
+BOIDS_MAX_STEP_DEGREES = float(os.environ.get("BOIDS_MAX_STEP_DEGREES", "0.0008"))
