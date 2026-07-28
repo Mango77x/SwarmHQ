@@ -1,9 +1,12 @@
 # SwarmHQ
 
 <p align="center">
-  <img alt="STATUS" src="https://img.shields.io/badge/status-all%2014%20sprints%20complete-success?style=for-the-badge">
+  <img src="docs/assets/logo.png" width="320" alt="SwarmHQ logo">
+</p>
+
+<p align="center">
   <a href="https://github.com/Mango77x/SwarmHQ/actions/workflows/ci.yml">
-    <img alt="CI" src="https://github.com/Mango77x/SwarmHQ/actions/workflows/ci.yml/badge.svg?style=for-the-badge">
+    <img alt="BUILD" src="https://img.shields.io/github/actions/workflow/status/Mango77x/SwarmHQ/ci.yml?branch=main&label=build&style=for-the-badge">
   </a>
   <a href="HELP.md">
     <img alt="HELP" src="https://img.shields.io/badge/help-HELP.md-informational?style=for-the-badge">
@@ -13,131 +16,125 @@
   </a>
 </p>
 
-SwarmHQ is a fully simulated drone command-and-control (C2) system, built as
-a software engineering portfolio project.
+SwarmHQ is a simulated drone command-and-control (C2) platform: a fleet of
+quadcopters reporting telemetry over MQTT, a Spring Boot backend turning
+that stream into geospatial data and live alerts, and a React map where the
+whole fleet moves in real time.
 
-**No real hardware. No real data. No targeting or weapons capability of any
-kind.** Every drone, mission, and telemetry stream is synthetic — the goal is
-to demonstrate IoT messaging, geospatial data, real-time web, and multi-agent
-coordination engineering, applicable equally to defense, logistics, or fleet
-management domains.
+**No real hardware, no real data, no targeting or weapons capability.**
+Every drone, mission, and telemetry reading is synthetic. The point isn't
+the drones themselves — it's the engineering underneath them: IoT
+messaging, geospatial queries, real-time web, and multi-agent coordination,
+the same building blocks used in logistics, fleet management, and any
+system that has to track many independent moving things at once.
 
 ---
 
-## Highlights (target capabilities)
+## Highlights
 
-- **Real IoT telemetry**: drones publish position/battery/status over
-  **MQTT** (pub/sub), the actual protocol used by real drone hardware — not
-  simplified REST polling
-- **Real geospatial storage**: positions persisted as **PostGIS** geometries,
-  enabling native "which drones are in this zone" / "distance traveled"
-  queries instead of hand-rolled math
-- **Live tactical map**: MapLibre GL JS map with drones animating in real
-  time over WebSocket, automatic alerts (low battery, out-of-zone, signal
-  loss)
-- **Automatic mission reporting**: active missions, success/failure rate, no
-  manual paperwork
-- **Genuine swarm behavior**: boids-style local coordination and
-  auction-based distributed task allocation between drones, switchable
-  against a centralized assignment engine — what the project's name
-  refers to
+- **MQTT telemetry**: each drone is its own authenticated client publishing
+  position, battery, and status — the same protocol real drone hardware
+  speaks, not a REST poll standing in for it
+- **PostGIS geometry**: positions are stored as actual points, so "which
+  drones are inside this zone" is a spatial query, not a loop of manual
+  distance math
+- **Live tactical map**: MapLibre GL JS, drones animating over a WebSocket
+  feed, alerts firing the moment a drone drops below a battery threshold,
+  drifts into a restricted zone, or goes dark
+- **Mission assignment, two ways**: a centralized engine that matches the
+  closest eligible drone to a mission, and a decentralized alternative
+  where drones bid on missions themselves — switchable, so both strategies
+  can be compared side by side
+- **Swarm movement**: patrol routes can run on boids flocking (separation,
+  alignment, cohesion) instead of a fixed loop, drones forming and
+  reforming as a flock the way the project's name implies
+- **Resilience by design**: signal loss, GPS noise, and Kalman-filtered
+  position smoothing are all part of the simulation, not edge cases bolted
+  on afterward
 
 <details>
-<summary>Resumen en español (🇪🇸)</summary>
+<summary>Resumen en español 🇪🇸</summary>
 
-SwarmHQ es un sistema de mando y control (C2) de drones completamente
-simulado, sin hardware ni datos reales. Es un proyecto de portfolio de
-ingeniería de software: mensajería IoT (MQTT), datos geoespaciales
-(PostGIS), tiempo real (WebSocket) y coordinación multi-agente (swarming).
-No implementa ni implementará capacidades reales de targeting o armamento.
+SwarmHQ es una plataforma de mando y control (C2) para una flota de drones
+completamente simulada: sin hardware real, sin datos reales, sin ninguna
+capacidad de targeting o armamento. El objetivo es la ingeniería detrás del
+sistema — mensajería IoT sobre MQTT, datos geoespaciales con PostGIS, mapa
+en tiempo real vía WebSocket y coordinación entre múltiples agentes
+(swarming) — aplicable igual de bien a logística o gestión de flotas que a
+un contexto de defensa.
 
-Para detalles técnicos y la hoja de ruta completa, consulta
-[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
+Detalles técnicos completos en [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
 
 </details>
 
 ---
 
-## Tech Stack
+## Tech stack
 
-- Java + Spring Boot (Spring Web, Spring Data JPA, Spring WebSocket/STOMP)
+- Java 21, Spring Boot (Web, Data JPA, WebSocket/STOMP)
 - PostgreSQL + PostGIS, Hibernate Spatial
-- Eclipse Mosquitto (MQTT broker)
-- Python + paho-mqtt (drone simulator)
-- React 19 + TypeScript + Vite + Tailwind 4, MapLibre GL JS (frontend)
-- Docker + Docker Compose
+- Eclipse Mosquitto, MQTT over TLS with per-drone credentials
+- Python drone simulator (paho-mqtt, numpy)
+- React 19, TypeScript, Vite, Tailwind, MapLibre GL JS
+- Docker Compose for the full stack, GitHub Actions for CI
 
-Full rationale for each choice in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
-
----
-
-## Status
-
-**All 14 sprints complete** — the latest, Sprint 14, adds genuine swarm
-behavior: patrolling drones can move by boids flocking (separation/
-alignment/cohesion) instead of a fixed waypoint square, and missions can be
-assigned by decentralized auction (drones bid on battery/distance, lowest
-bid wins) instead of the backend centrally picking one - toggleable against
-each other, so both approaches are directly comparable. See
-[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for the full sprint plan (core
-build + differentiation layers) and [HELP.md](HELP.md) for how to run it
-and known limitations.
+Rationale behind each choice lives in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
 
 ---
 
 ## Docs
 
-- Technical details, data model, full roadmap: [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
-- Local run / troubleshooting: [HELP.md](HELP.md)
+- [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) — architecture, data model, and
+  every subsystem explained in depth
+- [HELP.md](HELP.md) — how to run it locally, environment variables, and a
+  running log of the trickier bugs this project has surfaced
 
 ---
 
-## Run (quick)
+## Run it
 
 ```bash
 cp .env.example .env
 docker compose up -d
 ```
 
-That's infra only (Mosquitto + PostgreSQL/PostGIS). To also run the full
-app (backend + map) in a container - no local JDK/Node required, and the
-recommended way to run it at all if `./mvnw spring-boot:run` fails on your
-machine:
+That starts the infrastructure (Mosquitto, PostgreSQL/PostGIS). To run the
+full application in a container as well:
 
 ```bash
 docker compose up -d --build backend
 ```
 
-Then open `http://localhost:8080/app`. See [HELP.md](HELP.md) for ports,
-environment variables, and troubleshooting.
+Then open `http://localhost:8080/app`. [HELP.md](HELP.md) covers ports,
+environment variables, running the simulator, and troubleshooting.
 
 ---
 
 ## Scope and ethical boundaries
 
 This is a software engineering exercise in backend architecture, geospatial
-data, real-time systems, and coordination algorithms. It deliberately does
-**not** implement, and will not implement, anything related to real
-targeting, weapons/strike chains, or any capability that could be repurposed
-to cause real-world harm.
+data, and real-time systems. It does not implement, and will not implement,
+anything related to real targeting, weapons, or a capability that could be
+repurposed to cause harm.
 
 ---
 
 ## License
 
-This project is for educational and portfolio purposes.
+Educational and portfolio use.
 
 ---
 
 ## Contributing
 
-- Keep changes small and focused, one sprint at a time
-- Prefer service-layer rules (controllers stay thin)
-- Add/adjust tests when behavior changes
+PRs are welcome.
+
+- Keep changes small and focused
+- Business logic belongs in the service layer, not the controllers
+- Add or adjust tests when behavior changes
 
 ---
 
 ## Author
 
-Built and maintained by [Mango77x](https://github.com/Mango77x) as a
-portfolio project.
+Built and maintained by [Mango77x](https://github.com/Mango77x).
