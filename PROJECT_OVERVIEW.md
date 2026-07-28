@@ -752,6 +752,36 @@ below still holds.
    last: needed Sprint 10's centralized mode to exist first, to have
    something to toggle against/compare with.
 
+## Continuous integration
+
+Implemented as of Sprint 15 (`.github/workflows/ci.yml`) - three independent
+jobs, run in parallel on every push to `main` and every pull request:
+
+- **Backend** (`./mvnw test`): starts the same Postgres/PostGIS + Mosquitto
+  infra `docker compose up -d` gives a local developer (`.env.example`
+  copied to `.env`, defaults unchanged), then runs the full test suite
+  directly on the runner against it - the same way a developer runs tests
+  locally, rather than reimplementing the stack as separate CI service
+  containers. Mosquitto has no Docker healthcheck of its own, so a short
+  TCP-readiness loop against port 8883 runs first - `MqttConfig`'s
+  `connect()` call has no retry of its own, so a Spring context that
+  starts before the broker's TLS listener is actually bound fails every
+  test in the suite, not just the MQTT-specific ones.
+- **Simulator** (`pytest`): only `boids.py`'s pure math is unit-tested
+  (`test_boids.py`) - no broker or database needed for this job.
+- **Frontend** (`npm run lint` + `npm run build`): no frontend unit tests
+  exist yet, so lint (`oxlint`) plus the build's own `tsc -b` typecheck is
+  the real signal available today - either catches a broken build/type
+  error before merge instead of only when someone happens to run it
+  locally.
+- `backend/mvnw`'s executable bit wasn't actually tracked in git (`100644`
+  instead of `100755` - a Windows checkout doesn't preserve it), which a
+  Windows dev machine never notices since `./mvnw` still resolves via the
+  Git Bash/PowerShell wrapper either way; a Linux CI runner does notice,
+  failing the very first `./mvnw test` with a plain permission error.
+  Fixed via `git update-index --chmod=+x backend/mvnw` alongside adding
+  this workflow.
+
 ## Working conventions
 
 - Work proceeds sprint by sprint, in the order above; later phases are not
