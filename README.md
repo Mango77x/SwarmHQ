@@ -121,7 +121,7 @@ repurposed to cause harm.
 
 ## License
 
-Educational and portfolio use.
+MIT - see [LICENSE](LICENSE).
 
 ---
 
