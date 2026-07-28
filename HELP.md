@@ -182,6 +182,40 @@ disable, not needed normally), `MQTT_CA_CERT_PATH`, `MQTT_DRONE_PASSWORD`,
 variables below) will fail to authenticate - provision more identities
 first.
 
+### Running in swarm mode (Sprint 14)
+
+Off by default - a normal run stays in the same "centralized assignment +
+fixed waypoint routes" behavior every previous sprint used. Swarm mode has
+two independent halves that only do something useful together:
+
+1. **Backend**: set `MISSION_ASSIGNMENT_MODE=auction` in `.env` before
+   `docker compose up -d --build backend` (or
+   `swarmhq.mission-assignment.mode=auction` if running
+   `./mvnw spring-boot:run` directly, e.g.
+   `./mvnw spring-boot:run -Dspring-boot.run.arguments=--swarmhq.mission-assignment.mode=auction`).
+   This disables `MissionAssignmentService` and enables
+   `AuctionCoordinatorService` instead - see "Swarm behavior" in
+   PROJECT_OVERVIEW.md for how the auction itself works.
+2. **Simulator**: set `SWARM_MODE=true` before `main.py`, e.g.
+   ```bash
+   SWARM_MODE=true ./.venv/Scripts/python.exe main.py   # macOS/Linux: export SWARM_MODE=true first
+   ```
+   (on Windows PowerShell: `$env:SWARM_MODE = "true"` in the same shell
+   before running `main.py`). This switches patrolling drones to boids
+   flocking movement and makes them subscribe/bid on `missions/available`.
+   Tunable via `BOIDS_NEIGHBOR_RADIUS_DEGREES`, `BOIDS_SEPARATION_WEIGHT`,
+   `BOIDS_ALIGNMENT_WEIGHT`, `BOIDS_COHESION_WEIGHT`, `BOIDS_CENTER_WEIGHT`,
+   `BOIDS_MAX_STEP_DEGREES` (see `simulator/config.py` for defaults/rationale).
+
+**Pair both, or nothing visibly changes**: `SWARM_MODE=true` alone just
+means drones fly boids patrol patterns while still waiting for direct
+centralized assignments as before (harmless, just not the full picture);
+`MISSION_ASSIGNMENT_MODE=auction` alone means every auction just keeps
+reopening every tick with zero bids forever, since no drone is listening
+for `missions/available` - missions will appear stuck `PENDING` and never
+get assigned. If missions aren't being picked up with auction mode on,
+check the simulator's own `SWARM_MODE` first before suspecting the backend.
+
 ## Running the frontend
 
 For day-to-day frontend work, from `frontend/`:
@@ -225,6 +259,7 @@ environment (your machine, CI, etc.) keeps its own values.
 | `MQTT_BACKEND_PASSWORD` | `changeme` | the backend's own MQTT identity's password — change it, even locally |
 | `MQTT_DRONE_PASSWORD` | `changeme` | shared by every simulated drone identity (`drone-1`, `drone-2`, ...) — see "MQTT security" in PROJECT_OVERVIEW.md for why one shared password is an acceptable simplification here |
 | `MQTT_MAX_PROVISIONED_DRONES` | `20` | how many `drone-N` identities `mosquitto-setup` pre-provisions — raise this (and re-provision, see "Running the infrastructure") if running with `DRONE_COUNT` above 20 |
+| `MISSION_ASSIGNMENT_MODE` | `centralized` | backend mission-assignment strategy (Sprint 14) — `centralized` (Sprint 10's engine) or `auction` (drones bid, lowest cost wins). See "Running in swarm mode" below — this alone does nothing without the simulator's own `SWARM_MODE=true` |
 
 ## Known limitations (tracked in the roadmap, not bugs)
 
@@ -406,3 +441,52 @@ environment (your machine, CI, etc.) keeps its own values.
   bug in the publish path - see the "MQTT contract" note in
   PROJECT_OVERVIEW.md on why listeners need to be idempotent, not just
   correct for a single delivery.
+- **`MissionStatusListenerTests.marksMissionFailedAndRaisesMissionFailedEvent`
+  (or its `COMPLETED` sibling) intermittently fails with "expected 1 event
+  but was 2", reproducing even with just that one test class run alone**:
+  found and fixed during Sprint 14's own verification pass - this was a
+  genuine race in `MissionStatusListener`'s old redelivery guard, not test
+  pollution. The guard used to read `mission.getStatus()` and then write
+  the new status as two separate steps; two genuinely concurrent QoS1
+  redeliveries could both read `ACTIVE` before either write committed, so
+  both proceeded and both raised an `Event`. Fixed by
+  `MissionRepository.updateStatusIfActive` - a single atomic
+  `UPDATE ... WHERE status = 'ACTIVE'` - so only one caller ever gets
+  `rowsAffected == 1` for the same mission, no matter how the deliveries
+  interleave. If a similar "expected N, got N+1" symptom shows up on a
+  future listener with its own "already handled, ignore the repeat"
+  guard, check whether that guard is a read-then-write (racy) or a single
+  atomic conditional update (safe) before assuming it's cross-test
+  pollution (the previous two entries) - a targeted single-class rerun
+  ruling out other test classes, exactly like this one, is how to tell
+  the two apart.
+- **A new MQTT-backed test fails with a Postgres FK violation on cleanup
+  (`events_drone_id_fkey`), a duplicate-key violation on
+  `uq_drones_external_id`, or - most confusingly - makes an unrelated,
+  already-passing test fail intermittently with something like "expected 1
+  event but was 2"**: another test class is already using the same drone
+  identity (`test-drone-1`, `test-drone-4`, etc.). Every provisioned test
+  identity is claimed by exactly one test class - check
+  `infra/mosquitto/setup/generate.sh` for the full list before reusing one,
+  and add a new `mosquitto_passwd -b` line there (plus regenerate the
+  password file: delete `infra/mosquitto/config/passwd`, run
+  `docker compose up -d mosquitto-setup`, `docker compose restart
+  mosquitto`) if you need a new identity rather than reusing someone else's.
+  Isolate a suspected collision by running the affected test class alone
+  (passes) vs. the full suite (fails) to confirm it's cross-test pollution
+  and not a real bug in the test itself.
+- **A `@SpringBootTest` class using its own distinct `@TestPropertySource`
+  (a different `swarmhq.mission-assignment.mode`, a different feature flag,
+  etc.) makes an unrelated test elsewhere in the suite fail intermittently,
+  even after ruling out identity collisions (previous entry)**: Spring Test
+  caches `ApplicationContext`s by their exact configuration, so a distinct
+  `@TestPropertySource` spins up a *second*, simultaneously-alive context -
+  with its own live MQTT connection and its own instance of any
+  unconditional `@Component`/listener bean - that is never closed unless
+  told to be. That second context's listener can keep consuming messages
+  meant for a later, unrelated test's context for the rest of the suite
+  run. Fix: add `@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)`
+  to any test class that introduces a new, distinct `@TestPropertySource`
+  configuration (see `AuctionCoordinatorServiceTests`/
+  `MissionBidListenerTests`, Sprint 14) so its context is torn down once
+  that class finishes rather than lingering for the rest of the run.

@@ -73,6 +73,10 @@ services:
       MQTT_PORT: 8883
       MQTT_BACKEND_PASSWORD: ${MQTT_BACKEND_PASSWORD:?set MQTT_BACKEND_PASSWORD in .env}
       MQTT_CA_CERT_PATH: /mosquitto/certs/ca.crt
+      # Sprint 14: "centralized" (default) or "auction" - pair with the
+      # simulator's SWARM_MODE (see .env.example/HELP.md), set via
+      # MISSION_ASSIGNMENT_MODE in .env, not by editing this file.
+      SWARMHQ_MISSION_ASSIGNMENT_MODE: ${MISSION_ASSIGNMENT_MODE:-centralized}
     volumes:
       - ./infra/mosquitto/certs:/mosquitto/certs:ro
     ports:

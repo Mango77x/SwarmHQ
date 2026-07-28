@@ -1,7 +1,7 @@
 # SwarmHQ
 
 <p align="center">
-  <img alt="STATUS" src="https://img.shields.io/badge/status-sprint%2011%20of%2014-informational?style=for-the-badge">
+  <img alt="STATUS" src="https://img.shields.io/badge/status-all%2014%20sprints%20complete-success?style=for-the-badge">
   <a href="HELP.md">
     <img alt="HELP" src="https://img.shields.io/badge/help-HELP.md-informational?style=for-the-badge">
   </a>
@@ -34,10 +34,10 @@ management domains.
   loss)
 - **Automatic mission reporting**: active missions, success/failure rate, no
   manual paperwork
-- **Genuine swarm behavior** *(planned)*: boids-style local coordination
-  and/or auction-based distributed task allocation between drones,
-  switchable against a centralized assignment engine — what the project's
-  name refers to
+- **Genuine swarm behavior**: boids-style local coordination and
+  auction-based distributed task allocation between drones, switchable
+  against a centralized assignment engine — what the project's name
+  refers to
 
 <details>
 <summary>Resumen en español (🇪🇸)</summary>
@@ -70,12 +70,12 @@ Full rationale for each choice in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
 
 ## Status
 
-**Sprint 13 of 14** — The simulator can now randomly drop a drone's
-connection for a while (it keeps flying, it just stops reporting in), and
-the backend's own watchdog marks it `SIGNAL_LOST` after the telemetry goes
-quiet, retaining its last known position instead of guessing. The moment
-real telemetry resumes, it's marked `SIGNAL_RECOVERED` automatically - no
-manual reconnect step. See
+**All 14 sprints complete** — the latest, Sprint 14, adds genuine swarm
+behavior: patrolling drones can move by boids flocking (separation/
+alignment/cohesion) instead of a fixed waypoint square, and missions can be
+assigned by decentralized auction (drones bid on battery/distance, lowest
+bid wins) instead of the backend centrally picking one - toggleable against
+each other, so both approaches are directly comparable. See
 [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for the full sprint plan (core
 build + differentiation layers) and [HELP.md](HELP.md) for how to run it
 and known limitations.

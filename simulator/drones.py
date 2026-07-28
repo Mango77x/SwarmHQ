@@ -88,14 +88,26 @@ class Drone:
             self._retarget(DroneStatus.ON_MISSION, target_index=0)
             return True
 
-    def tick(self) -> Optional[dict]:
+    def tick(self, position_override: Optional[Waypoint] = None) -> Optional[dict]:
         """Advances the drone by one publish interval. Returns a
         mission-status event ({"missionId", "status", ["reason"]}) if the
-        active mission just completed or was aborted this tick, else None."""
+        active mission just completed or was aborted this tick, else None.
+
+        position_override (Sprint 14, swarm mode): a position computed
+        externally (boids.compute_step, over every patrolling drone at
+        once - not something a single Drone can compute about itself) to
+        use instead of following the fixed waypoint route this tick.
+        Ignored unless the drone is still PATROLLING once battery/mission
+        transitions have been applied - a drone that just broke off to
+        RETURNING or is ON_MISSION always flies its own route/mission
+        regardless of what the flock is doing."""
         with self._lock:
             self._pending_mission_event = None
             self._drain_battery_if_active()
-            self._advance_towards_target()
+            if position_override is not None and self.status is DroneStatus.PATROLLING:
+                self.lat, self.lon = position_override
+            else:
+                self._advance_towards_target()
             self._update_signal_loss()
             return self._pending_mission_event
 

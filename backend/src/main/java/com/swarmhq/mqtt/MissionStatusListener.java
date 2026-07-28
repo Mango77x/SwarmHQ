@@ -76,33 +76,43 @@ public class MissionStatusListener {
             log.warn("Ignoring status for unknown mission {} (reported by {})", payload.missionId(), externalId);
             return;
         }
-        // MQTT QoS1 is "at least once" - a redelivered duplicate (e.g. the
-        // publisher retransmitting because a PUBACK arrived slower than
-        // its retry timer, more likely now that the handshake is TLS) is
-        // expected, spec-compliant behavior, not a bug. COMPLETED/FAILED
-        // are terminal, so once a mission has already reached one, a
-        // repeat of the same report is a no-op instead of a second Event.
-        if (mission.getStatus() != MissionStatus.ACTIVE) {
-            log.debug("Ignoring mission status for {} - already {} (likely a QoS1 redelivery)",
-                    payload.missionId(), mission.getStatus());
+
+        MissionStatus newStatus = switch (payload.status()) {
+            case "COMPLETED" -> MissionStatus.COMPLETED;
+            case "FAILED" -> MissionStatus.FAILED;
+            default -> null;
+        };
+        if (newStatus == null) {
+            log.warn("Ignoring unknown mission status '{}' for mission {}", payload.status(), payload.missionId());
             return;
         }
 
-        switch (payload.status()) {
-            case "COMPLETED" -> {
-                mission.setStatus(MissionStatus.COMPLETED);
-                missionRepository.save(mission);
-                alertService.raiseMissionEvent(mission, EventType.WAYPOINT_REACHED,
-                        "Mission " + mission.getId() + " completed");
-            }
-            case "FAILED" -> {
-                mission.setStatus(MissionStatus.FAILED);
-                missionRepository.save(mission);
+        // MQTT QoS1 is "at least once" - a redelivered duplicate (e.g. the
+        // publisher retransmitting because a PUBACK arrived slower than its
+        // retry timer, more likely now that the handshake is TLS) is
+        // expected, spec-compliant behavior, not a bug. COMPLETED/FAILED are
+        // terminal, so a repeat of the same report should be a no-op - but
+        // a plain "read status, then write" check is racy under genuinely
+        // concurrent redeliveries (both can read ACTIVE before either write
+        // commits). This single atomic UPDATE ... WHERE status = 'ACTIVE'
+        // is the actual guard: Postgres' row lock means only one concurrent
+        // caller ever gets rowsAffected == 1 for the same mission, so only
+        // one Event is ever raised no matter how the deliveries interleave.
+        if (missionRepository.updateStatusIfActive(mission.getId(), newStatus) == 0) {
+            log.debug("Ignoring mission status for {} - already resolved (likely a QoS1 redelivery)",
+                    payload.missionId());
+            return;
+        }
+
+        switch (newStatus) {
+            case COMPLETED -> alertService.raiseMissionEvent(mission, EventType.WAYPOINT_REACHED,
+                    "Mission " + mission.getId() + " completed");
+            case FAILED -> {
                 String detail = "Mission " + mission.getId() + " failed"
                         + (payload.reason() != null ? " (" + payload.reason() + ")" : "");
                 alertService.raiseMissionEvent(mission, EventType.MISSION_FAILED, detail);
             }
-            default -> log.warn("Ignoring unknown mission status '{}' for mission {}", payload.status(), payload.missionId());
+            default -> throw new IllegalStateException("Unreachable - newStatus is always COMPLETED or FAILED here");
         }
     }
 }
