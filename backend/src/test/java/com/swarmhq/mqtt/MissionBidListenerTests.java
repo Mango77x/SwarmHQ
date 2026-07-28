@@ -121,11 +121,11 @@ class MissionBidListenerTests {
 
         // 20s, not 10s: this waits on two real @Scheduled ticks
         // (AuctionCoordinatorService opening the auction, then closing it
-        // after auction-window-seconds), sharing Spring's task scheduler
-        // thread with MissionAssignmentService's and SignalMonitorService's
-        // own ticks - CI runners are slower/more contended than a dev
-        // machine, and 10s cut it too close there even after giving the
-        // scheduler more than one thread (see spring.task.scheduling.pool.size).
+        // after auction-window-seconds), sharing a task scheduler thread
+        // with MissionAssignmentService's and SignalMonitorService's own
+        // ticks (see WebSocketConfig.taskScheduler() for why that pool was
+        // undersized in the first place) - CI runners are slower/more
+        // contended than a dev machine, and 10s cut it too close there.
         Awaitility.await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
             MqttMessage message = new MqttMessage(bidPayload);
             message.setQos(1);
