@@ -85,6 +85,15 @@ public class MissionAssignmentService {
         pending.sort(Comparator.comparing(Mission::getPriority).reversed());
 
         for (Mission mission : pending) {
+            // scheduledAssignment() only checks the mode once, before this
+            // whole pass starts - a switch to AUCTION mid-pass (this loop
+            // runs a real query per mission, not instant) would otherwise
+            // still let this tick hand off a mission the auction side
+            // should own instead. Re-checked right before the mutation
+            // itself, not just once up front.
+            if (modeHolder.get() != MissionAssignmentModeHolder.Mode.CENTRALIZED) {
+                return;
+            }
             // Queried fresh per mission (not a single snapshot up front) so
             // a drone claimed by an earlier mission in this same pass is
             // already excluded - MissionAssigner.assign() commits
