@@ -38,6 +38,16 @@ log = logging.getLogger("simulator")
 
 _running = True
 _METERS_PER_DEGREE = 111_320.0
+MISSION_ASSIGNMENT_MODE_TOPIC = "system/mission-assignment-mode"
+
+# Sprint 16: this used to be the sole, fixed gate for both boids movement
+# and mission bidding, read once at startup. The backend can now flip it
+# live via a retained message on MISSION_ASSIGNMENT_MODE_TOPIC (published
+# on every backend startup too, not just future changes - see
+# MissionAssignmentModeHolder), so this is a mutable flag instead - SWARM_MODE
+# is only the fallback value used before that retained message actually
+# arrives (e.g. the very first tick or two after connecting).
+_swarm_mode_active = SWARM_MODE
 
 BOIDS_PARAMS = BoidsParams(
     neighbor_radius_degrees=BOIDS_NEIGHBOR_RADIUS_DEGREES,
@@ -110,9 +120,14 @@ def _make_mission_available_handler(drone: Drone, client: mqtt.Client):
     # on roughly the criteria the centralized engine would've judged it
     # by, and the lowest bid (AuctionCoordinatorService picks it) is doing
     # the same job that engine's ORDER BY does.
+    #
+    # Every drone is subscribed to missions/available unconditionally now
+    # (Sprint 16) - the backend simply never publishes to it outside
+    # auction mode, but the _swarm_mode_active check here is a cheap
+    # second guard against a stray message right at a mode-switch boundary.
     def _on_mission_available(_client, _userdata, message):
         try:
-            if drone.status is not DroneStatus.PATROLLING:
+            if not _swarm_mode_active or drone.status is not DroneStatus.PATROLLING:
                 return
             payload = json.loads(message.payload)
             distance = _distance_meters(drone.lat, drone.lon, payload["lat"], payload["lon"])
@@ -123,6 +138,22 @@ def _make_mission_available_handler(drone: Drone, client: mqtt.Client):
             log.exception("%s failed to process available mission", drone.external_id)
 
     return _on_mission_available
+
+
+def _on_mode_message(_client, _userdata, message):
+    # Sprint 16: every drone client subscribes to this and gets the same
+    # retained message independently, so this fires once per drone for the
+    # same real-world event - only log when the value actually changes,
+    # not on every redundant per-client delivery.
+    global _swarm_mode_active
+    try:
+        payload = json.loads(message.payload)
+        new_value = payload.get("mode") == "auction"
+        if new_value != _swarm_mode_active:
+            log.info("Mission-assignment mode is now %s", "auction (swarm)" if new_value else "centralized")
+        _swarm_mode_active = new_value
+    except Exception:
+        log.exception("Failed to process mission-assignment mode update")
 
 
 def _connect_drone_client(drone: Drone) -> mqtt.Client:
@@ -138,9 +169,12 @@ def _connect_drone_client(drone: Drone) -> mqtt.Client:
     mission_topic = f"drones/{drone.external_id}/mission"
     client.subscribe(mission_topic)
     client.message_callback_add(mission_topic, _make_mission_assigned_handler(drone))
-    if SWARM_MODE:
-        client.subscribe("missions/available")
-        client.message_callback_add("missions/available", _make_mission_available_handler(drone, client))
+    # Sprint 16: always subscribed, not gated behind SWARM_MODE at startup -
+    # both bidding and the mode itself now follow the backend live instead.
+    client.subscribe("missions/available")
+    client.message_callback_add("missions/available", _make_mission_available_handler(drone, client))
+    client.subscribe(MISSION_ASSIGNMENT_MODE_TOPIC, qos=1)
+    client.message_callback_add(MISSION_ASSIGNMENT_MODE_TOPIC, _on_mode_message)
     client.loop_start()
     return client
 
@@ -167,13 +201,15 @@ def main() -> None:
     # rather than a stale, misleadingly large one from whenever it last
     # patrolled.
     last_patrol_positions: dict[str, tuple[float, float]] = {}
-    log.info("Connected to %s:%s (TLS=%s) - simulating %d drone(s), each as its own identity%s",
-              MQTT_HOST, MQTT_PORT, MQTT_USE_TLS, len(drones), " [swarm mode]" if SWARM_MODE else "")
+    log.info("Connected to %s:%s (TLS=%s) - simulating %d drone(s), each as its own identity "
+              "(initial mode: %s, follows the backend live from here)",
+              MQTT_HOST, MQTT_PORT, MQTT_USE_TLS, len(drones),
+              "auction/swarm" if _swarm_mode_active else "centralized")
 
     try:
         while _running:
             boids_positions: dict[str, tuple[float, float]] = {}
-            if SWARM_MODE:
+            if _swarm_mode_active:
                 current_positions = {
                     drone.external_id: (drone.lat, drone.lon)
                     for drone in drones if drone.status is DroneStatus.PATROLLING

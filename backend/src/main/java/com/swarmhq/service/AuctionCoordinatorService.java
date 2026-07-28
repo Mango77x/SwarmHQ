@@ -13,7 +13,6 @@ import org.locationtech.jts.geom.Coordinate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
@@ -30,9 +29,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 /**
  * The {@code auction} mission-assignment strategy (Sprint 14) - the
  * alternative to Sprint 10's centralized {@link MissionAssignmentService},
- * active only when {@code swarmhq.mission-assignment.mode=auction}. Rather
- * than the backend picking a drone itself, it broadcasts each PENDING
- * mission on {@code missions/available} and lets drones bid on
+ * active whenever {@link MissionAssignmentModeHolder} currently says
+ * {@code AUCTION} (checked fresh every tick, not fixed at startup - this
+ * bean always exists now, same as the centralized one). Rather than the
+ * backend picking a drone itself, it broadcasts each PENDING mission on
+ * {@code missions/available} and lets drones bid on
  * {@code missions/{missionId}/bids} (received via
  * {@code com.swarmhq.mqtt.MissionBidListener}); the lowest bid within a
  * short window wins. Both strategies hand off the winning assignment
@@ -40,7 +41,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * decided its assignment.
  */
 @Service
-@ConditionalOnProperty(prefix = "swarmhq.mission-assignment", name = "mode", havingValue = "auction")
 public class AuctionCoordinatorService {
 
     private static final Logger log = LoggerFactory.getLogger(AuctionCoordinatorService.class);
@@ -50,6 +50,7 @@ public class AuctionCoordinatorService {
     private final MissionAssigner missionAssigner;
     private final MqttClient mqttClient;
     private final ObjectMapper objectMapper;
+    private final MissionAssignmentModeHolder modeHolder;
     private final Duration auctionWindow;
     private final boolean schedulerEnabled;
 
@@ -57,6 +58,7 @@ public class AuctionCoordinatorService {
 
     public AuctionCoordinatorService(MissionRepository missionRepository, DroneRepository droneRepository,
             MissionAssigner missionAssigner, MqttClient mqttClient, ObjectMapper objectMapper,
+            MissionAssignmentModeHolder modeHolder,
             @Value("${swarmhq.mission-assignment.auction-window-seconds:3}") long auctionWindowSeconds,
             @Value("${swarmhq.mission-assignment.scheduler-enabled:true}") boolean schedulerEnabled) {
         this.missionRepository = missionRepository;
@@ -64,6 +66,7 @@ public class AuctionCoordinatorService {
         this.missionAssigner = missionAssigner;
         this.mqttClient = mqttClient;
         this.objectMapper = objectMapper;
+        this.modeHolder = modeHolder;
         this.auctionWindow = Duration.ofSeconds(auctionWindowSeconds);
         this.schedulerEnabled = schedulerEnabled;
     }
@@ -83,11 +86,12 @@ public class AuctionCoordinatorService {
      * Disabled in tests via the same {@code scheduler-enabled} flag
      * MissionAssignmentService uses - AuctionCoordinatorServiceTests
      * drives {@link #openNewAuctions()}/{@link #closeExpiredAuctions()}
-     * directly and can't have a background tick racing its own bids.
+     * directly and can't have a background tick racing its own bids. Also
+     * a no-op whenever the mode holder currently says {@code CENTRALIZED}.
      */
     @Scheduled(fixedDelay = 1000)
     void tick() {
-        if (schedulerEnabled) {
+        if (schedulerEnabled && modeHolder.get() == MissionAssignmentModeHolder.Mode.AUCTION) {
             openNewAuctions();
             closeExpiredAuctions();
         }

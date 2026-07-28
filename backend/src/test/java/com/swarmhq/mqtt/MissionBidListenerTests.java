@@ -8,18 +8,18 @@ import com.swarmhq.model.MissionStatus;
 import com.swarmhq.repository.DroneRepository;
 import com.swarmhq.repository.EventRepository;
 import com.swarmhq.repository.MissionRepository;
+import com.swarmhq.service.MissionAssignmentModeHolder;
 import org.awaitility.Awaitility;
 import org.eclipse.paho.mqttv5.client.MqttClient;
 import org.eclipse.paho.mqttv5.common.MqttMessage;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.PrecisionModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.TestPropertySource;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
@@ -32,28 +32,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Exercises the real MQTT path end to end (publish a bid -> MissionBidListener
  * -> AuctionCoordinatorService.recordBid -> assignment on close), unlike
  * AuctionCoordinatorServiceTests, which drives open/bid/close as direct
- * method calls. Runs with the real scheduler (unlike that class) since
- * there's no other way to observe "the auction actually opened" - the test
- * re-publishes the bid on every Awaitility poll instead of trying to time
- * a single publish against the 1s tick; recordBid() is a no-op until an
- * auction is open, so the first publish that lands after it opens is the
- * one that counts. Not @Transactional, same reasoning as
- * MissionStatusListenerTests: the listener's own save happens on a
- * different thread/transaction than this test method.
+ * method calls. Runs with the real scheduler since there's no other way to
+ * observe "the auction actually opened" - the test re-publishes the bid on
+ * every Awaitility poll instead of trying to time a single publish against
+ * the 1s tick; recordBid() is a no-op until an auction is open, so the
+ * first publish that lands after it opens is the one that counts. Not
+ * @Transactional, same reasoning as MissionStatusListenerTests: the
+ * listener's own save happens on a different thread/transaction than this
+ * test method.
  *
- * {@code @DirtiesContext}: see AuctionCoordinatorServiceTests's javadoc -
- * this class's {@code auction-window-seconds=2} (vs. that class's
- * {@code =0}) is itself a distinct property set from *both* the default
- * context and that one, so without this its own live MQTT connection
- * would linger and double-process messages for whatever test class
- * happens to run after it too.
+ * No {@code @TestPropertySource}/{@code @DirtiesContext} needed anymore
+ * (Sprint 16): auction mode is a runtime-mutable
+ * {@link MissionAssignmentModeHolder}, not a startup property, so this
+ * class shares the same cached default context every other bare
+ * {@code @SpringBootTest} class uses instead of spinning up (and having to
+ * clean up) its own. That holder is a real process-wide singleton though -
+ * {@link #enableAuctionMode()}/{@link #cleanup()} set it to AUCTION before
+ * this test and reset it back to CENTRALIZED after, regardless of outcome,
+ * or AuctionCoordinatorService's real tick would keep actually running for
+ * every test class sharing this context afterward.
  */
 @SpringBootTest
-@TestPropertySource(properties = {
-        "swarmhq.mission-assignment.mode=auction",
-        "swarmhq.mission-assignment.auction-window-seconds=2"
-})
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class MissionBidListenerTests {
 
     private static final GeometryFactory GEOMETRY_FACTORY = new GeometryFactory(new PrecisionModel(), 4326);
@@ -70,12 +69,21 @@ class MissionBidListenerTests {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private MissionAssignmentModeHolder modeHolder;
+
     private MqttClient publisher;
     private Drone drone;
     private Mission mission;
 
+    @BeforeEach
+    void enableAuctionMode() {
+        modeHolder.set(MissionAssignmentModeHolder.Mode.AUCTION);
+    }
+
     @AfterEach
     void cleanup() throws Exception {
+        modeHolder.set(MissionAssignmentModeHolder.Mode.CENTRALIZED);
         if (publisher != null && publisher.isConnected()) {
             publisher.disconnect();
         }

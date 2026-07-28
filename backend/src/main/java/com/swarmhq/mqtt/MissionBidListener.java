@@ -9,7 +9,6 @@ import org.eclipse.paho.mqttv5.common.MqttMessage;
 import org.eclipse.paho.mqttv5.common.MqttSubscription;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
@@ -17,14 +16,15 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Consumes drone bids for {@code AuctionCoordinatorService} (Sprint 14,
- * auction mode only - same {@code @ConditionalOnProperty} gate, since
- * there's nothing to do with a bid when the centralized engine is active).
- * Same thin-listener/service-layer split as every other MQTT listener in
- * this project.
+ * Consumes drone bids for {@code AuctionCoordinatorService} (Sprint 14).
+ * Always subscribed now, not gated to auction mode only - a bid arriving
+ * while centralized mode is active just means
+ * {@code AuctionCoordinatorService.recordBid} finds no open auction for
+ * it and drops it, the same as a bid arriving after its own auction
+ * already closed. Same thin-listener/service-layer split as every other
+ * MQTT listener in this project.
  */
 @Component
-@ConditionalOnProperty(prefix = "swarmhq.mission-assignment", name = "mode", havingValue = "auction")
 public class MissionBidListener {
 
     private static final Logger log = LoggerFactory.getLogger(MissionBidListener.class);
