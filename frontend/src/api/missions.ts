@@ -1,5 +1,5 @@
 export type MissionPriority = "LOW" | "MEDIUM" | "HIGH";
-export type MissionStatus = "PENDING" | "ACTIVE" | "COMPLETED" | "FAILED" | "CANCELLED";
+export type MissionStatus = "PENDING" | "ACTIVE" | "COMPLETED" | "FAILED";
 
 export interface Mission {
   id: number;

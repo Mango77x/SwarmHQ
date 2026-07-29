@@ -815,14 +815,17 @@ below still holds.
 piloting (a joystick/real-time flight control would be a different kind
 of project, more simulator than C2, and is explicitly out of scope).
 The live mode toggle (Sprint 16) is the first real order the app can
-issue; these are the next ones, in priority order. None of this is
-scheduled to a sprint yet, just written down so it doesn't get lost.
+issue; these are the next ones, in priority order. Items 2-4 aren't
+scheduled to a sprint, just written down so they don't get lost -
+development paused here deliberately, with the project considered
+portfolio-complete as of item 1.
 
-1. **Dispatch missions from the map.** `POST /api/missions` already
-   exists (Sprint 10 deliberately shipped it without a UI, same as risk
-   zones), so the backend work is done. What's missing is the frontend:
-   pick a start/end point on the map, choose a priority, send it. The
-   most obviously-missing order given the backend already supports it.
+1. ✅ **Dispatch missions from the map.** Done - `POST /api/missions`
+   already existed (Sprint 10 deliberately shipped it without a UI,
+   same as risk zones), so this was frontend-only: click two points on
+   the map, choose a priority, send it. Pending/active missions also
+   render as lines on the map now, colored by status, so a dispatched
+   order is visible instead of only a row in a table nobody sees.
 2. **Cancel a mission / recall a drone (RTB).** Doesn't exist on either
    side yet. Right now a mission only reaches a terminal state via the
    simulator's own completion logic; there's no operator override to
