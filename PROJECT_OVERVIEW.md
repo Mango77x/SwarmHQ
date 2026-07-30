@@ -1,4 +1,4 @@
-# SwarmHQ — Project Overview
+# SwarmHQ - Project Overview
 
 Technical reference for architecture, data model, and the sprint-by-sprint
 build plan. For a quick summary and how to run the stack, see
@@ -66,7 +66,7 @@ to cause real-world harm is in scope, ever.
 - **MQTT** over plain REST: the real protocol used with actual hardware, and
   it demonstrates IoT/telemetry systems knowledge.
 - **PostGIS** over plain Postgres: the real standard for any system working
-  with positions, zones, and routes — not an arbitrary choice.
+  with positions, zones, and routes, not an arbitrary choice.
 - **MapLibre** over Leaflet: better performance with constantly-animating
   markers, and it's modern vector tech used in professional GIS systems.
 - **Spring Boot**: solid, already mastered from a previous project (MOLS),

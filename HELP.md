@@ -6,7 +6,7 @@ Local setup and troubleshooting notes. For architecture and roadmap, see
 ## Requirements
 
 - Docker + Docker Compose
-- JDK 21+ (the Maven wrapper handles Maven itself — no local Maven install needed)
+- JDK 21+ (the Maven wrapper handles Maven itself, no local Maven install needed)
 - Python 3.11+ (for the simulator)
 - Node 20+ (for the frontend; not required for `./mvnw package -Pfrontend`,
   which downloads its own pinned Node version automatically)
@@ -41,7 +41,7 @@ Stop with:
 docker compose down
 ```
 
-Add `-v` to also delete the Postgres data volume (destructive — only do
+Add `-v` to also delete the Postgres data volume (destructive, only do
 this if you want a clean database).
 
 ## Running the backend in Docker
@@ -89,7 +89,7 @@ an MQTT client and subscribes to `drones/+/telemetry` (see
 [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md), "MQTT contract"), and starts a
 WebSocket/STOMP broker at `/ws` (no destinations published yet). There's no
 HTTP endpoint of its own beyond Spring Boot Actuator at `/actuator/health`
-— that arrives with the first REST controller in a later sprint.
+(that arrives with the first REST controller in a later sprint).
 
 Schema changes go in a new `db/migration/V{n}__description.sql` file (never
 edit an already-applied one) - `Drone`/`Mission`/`Event` and their PostGIS
@@ -257,25 +257,25 @@ environment (your machine, CI, etc.) keeps its own values.
 |---|---|---|
 | `POSTGRES_DB` | `swarmhq` | database name |
 | `POSTGRES_USER` | `swarmhq` | database user |
-| `POSTGRES_PASSWORD` | `changeme` | database password — change it, even locally |
+| `POSTGRES_PASSWORD` | `changeme` | database password, change it even locally |
 | `POSTGRES_PORT` | `5433` | host port mapped to Postgres |
 | `MQTT_PORT` | `8883` | host port mapped to Mosquitto MQTT+TLS |
 | `MQTT_WS_PORT` | `9001` | host port mapped to Mosquitto MQTT+TLS-over-WebSocket |
-| `MQTT_BACKEND_PASSWORD` | `changeme` | the backend's own MQTT identity's password — change it, even locally |
-| `MQTT_DRONE_PASSWORD` | `changeme` | shared by every simulated drone identity (`drone-1`, `drone-2`, ...) — see "MQTT security" in PROJECT_OVERVIEW.md for why one shared password is an acceptable simplification here |
-| `MQTT_MAX_PROVISIONED_DRONES` | `20` | how many `drone-N` identities `mosquitto-setup` pre-provisions — raise this (and re-provision, see "Running the infrastructure") if running with `DRONE_COUNT` above 20 |
-| `MISSION_ASSIGNMENT_MODE` | `centralized` | the mode holder's *initial* value only (Sprint 16) — `centralized` (Sprint 10's engine) or `auction` (drones bid, lowest cost wins). Switch it live afterward via the frontend toggle or `PUT /api/mode` instead of restarting - see "Running in swarm mode" below |
+| `MQTT_BACKEND_PASSWORD` | `changeme` | the backend's own MQTT identity's password, change it even locally |
+| `MQTT_DRONE_PASSWORD` | `changeme` | shared by every simulated drone identity (`drone-1`, `drone-2`, ...), see "MQTT security" in PROJECT_OVERVIEW.md for why one shared password is an acceptable simplification here |
+| `MQTT_MAX_PROVISIONED_DRONES` | `20` | how many `drone-N` identities `mosquitto-setup` pre-provisions, raise this (and re-provision, see "Running the infrastructure") if running with `DRONE_COUNT` above 20 |
+| `MISSION_ASSIGNMENT_MODE` | `centralized` | the mode holder's *initial* value only (Sprint 16): `centralized` (Sprint 10's engine) or `auction` (drones bid, lowest cost wins). Switch it live afterward via the frontend toggle or `PUT /api/mode` instead of restarting, see "Running in swarm mode" below |
 
 ## Known limitations (tracked in the roadmap, not bugs)
 
 - **`hibernate-spatial` pinned to `7.0.2.Final`** against a `hibernate-core`
-  managed at `7.4.1.Final` by the Spring Boot 4.1 parent — spatial-specific
-  releases tend to lag behind core. Confirmed working end-to-end as of
+  managed at `7.4.1.Final` by the Spring Boot 4.1 parent (spatial-specific
+  releases tend to lag behind core). Confirmed working end-to-end as of
   Sprint 3: `Drone.position` (a `geometry(Point,4326)` column) round-trips
   correctly through JTS/Hibernate Spatial/PostGIS (see
   `DroneRepositoryTests`). Still worth re-checking after any future
   `hibernate-core` version bump.
-- No MQTT listener, REST controllers, or UI yet (Sprint 4+) — Sprint 3 only
+- No MQTT listener, REST controllers, or UI yet (Sprint 4+): Sprint 3 only
   adds the `Drone`/`Mission`/`Event` entities and their Flyway-managed
   schema.
 
@@ -289,11 +289,11 @@ environment (your machine, CI, etc.) keeps its own values.
   listening on `5432` will silently swallow connections meant for the
   Docker container (the client authenticates against the *native* Postgres
   instead, and fails with a password/auth error that has nothing to do with
-  the credentials in `.env`) — Docker itself starts fine either way, so
+  the credentials in `.env`). Docker itself starts fine either way, so
   `docker compose ps` showing "healthy" doesn't rule this out.
 - **`./mvnw spring-boot:run` fails with `java.io.IOException: Unable to
   establish loopback connection` / `WEPollSelectorImpl` / `Invalid argument:
-  connect`**: this is a local JDK-on-Windows issue, not a SwarmHQ bug — a
+  connect`**: this is a local JDK-on-Windows issue, not a SwarmHQ bug. A
   bare `Selector.open()` with no Spring involved fails the same way on an
   affected machine. It shows up when something on the host (commonly
   endpoint-security/AV network-filter software) interferes with the
@@ -310,14 +310,14 @@ environment (your machine, CI, etc.) keeps its own values.
 - **Hibernate fails at startup with `SchemaManagementException: Schema
   validation: missing table [...]`, and nothing in the log mentions
   Flyway at all**: Spring Boot 4 split Flyway autoconfiguration into its
-  own `org.springframework.boot:spring-boot-flyway` module — having
+  own `org.springframework.boot:spring-boot-flyway` module, having
   `flyway-core` (and `flyway-database-postgresql`) on the classpath isn't
   enough by itself, Flyway silently never runs. `pom.xml` already declares
   `spring-boot-flyway` for this reason; if you hit this after adding a new
   dependency elsewhere, check it didn't get excluded.
 - **`MqttClient.subscribe(String, int, IMqttMessageListener)` throws a
   `StackOverflowError`**: this is a real bug in Eclipse Paho's mqttv5 client
-  `1.2.5` — that overload (and the `String[]/int[]/IMqttMessageListener[]`
+  `1.2.5`. That overload (and the `String[]/int[]/IMqttMessageListener[]`
   one it delegates to) call themselves instead of the next overload down,
   confirmed by disassembling the jar. `DroneTelemetryListener.subscribe()`
   uses the `MqttSubscription[]/IMqttMessageListener[]` overload instead,
@@ -417,7 +417,7 @@ environment (your machine, CI, etc.) keeps its own values.
   second, colliding project.
 - **`docker compose up` fails pulling images**: confirm Docker Desktop /
   the Docker daemon is running.
-- **Postgres container unhealthy**: check `docker compose logs postgis` —
+- **Postgres container unhealthy**: check `docker compose logs postgis`,
   usually a credential mismatch between an existing volume and a changed
   `.env`. Recreate the volume with `docker compose down -v` if the data in
   it is disposable.
