@@ -27,18 +27,18 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * The {@code auction} mission-assignment strategy (Sprint 14) - the
- * alternative to Sprint 10's centralized {@link MissionAssignmentService},
- * active whenever {@link MissionAssignmentModeHolder} currently says
- * {@code AUCTION} (checked fresh every tick, not fixed at startup - this
- * bean always exists now, same as the centralized one). Rather than the
+ * The {@code auction} mission-assignment strategy: the alternative to
+ * the centralized {@link MissionAssignmentService}, active whenever
+ * {@link MissionAssignmentModeHolder} currently says {@code AUCTION}.
+ * That's checked fresh every tick rather than fixed at startup - this
+ * bean always exists, same as the centralized one. Instead of the
  * backend picking a drone itself, it broadcasts each PENDING mission on
  * {@code missions/available} and lets drones bid on
  * {@code missions/{missionId}/bids} (received via
  * {@code com.swarmhq.mqtt.MissionBidListener}); the lowest bid within a
  * short window wins. Both strategies hand off the winning assignment
- * identically via {@link MissionAssigner} - a drone can't tell which one
- * decided its assignment.
+ * the same way, via {@link MissionAssigner} - a drone can't tell which
+ * one decided its assignment.
  */
 @Service
 public class AuctionCoordinatorService {
@@ -98,10 +98,9 @@ public class AuctionCoordinatorService {
     }
 
     /**
-     * Package-private (not private) so AuctionCoordinatorServiceTests can
-     * drive opening/bidding/closing as separate deterministic steps
-     * instead of only through the combined, real-clock-dependent
-     * {@link #tick()}.
+     * Package-private so AuctionCoordinatorServiceTests can drive
+     * opening/bidding/closing as separate deterministic steps instead of
+     * only through the combined, real-clock-dependent {@link #tick()}.
      */
     void openNewAuctions() {
         for (Mission mission : missionRepository.findByStatusOrderByCreatedAtAsc(MissionStatus.PENDING)) {

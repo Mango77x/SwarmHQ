@@ -5,9 +5,10 @@ import type { Drone } from "./drones";
 const DRONE_UPDATES_TOPIC = "/topic/drones";
 
 /**
- * Subscribes to live drone pushes over STOMP/SockJS (backend: WebSocketConfig
- * + DroneService.applyTelemetry, Sprint 7) - the incremental counterpart to
- * fetchDrones()'s REST snapshot. Call the returned function to disconnect.
+ * Subscribes to live drone pushes over STOMP/SockJS (backend:
+ * WebSocketConfig + DroneService.applyTelemetry), the incremental
+ * counterpart to fetchDrones()'s REST snapshot. Call the returned
+ * function to disconnect.
  */
 export function connectLiveDrones(
   onDrone: (drone: Drone) => void,

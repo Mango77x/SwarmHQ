@@ -8,13 +8,14 @@ import org.eclipse.paho.mqttv5.client.persist.MemoryPersistence;
 import java.nio.charset.StandardCharsets;
 
 /**
- * TLS + auth (Sprint 11) means a test that wants to publish a message as
- * if it came from a drone needs its own credentialed MQTT connection, not
- * just a plain {@code tcp://} one. Reuses {@link MqttConfig#trustingOnly}
- * rather than duplicating the CA-trust setup. "test-drone-1"/"test-drone-2"
- * are provisioned test-only identities (infra/mosquitto/setup/generate.sh)
- * - deliberately not reusing "drone-1" etc., which a real simulator run
- * might be using concurrently.
+ * With TLS + auth on the broker, a test that wants to publish a message
+ * as if it came from a drone needs its own credentialed MQTT connection -
+ * a plain {@code tcp://} one won't authenticate. Reuses
+ * {@link MqttConfig#trustingOnly} instead of duplicating the CA-trust
+ * setup. "test-drone-1"/"test-drone-2" are provisioned test-only
+ * identities (infra/mosquitto/setup/generate.sh); using those instead of
+ * "drone-1" etc. avoids colliding with a real simulator run that might be
+ * using those concurrently.
  */
 final class TestMqttPublishers {
 

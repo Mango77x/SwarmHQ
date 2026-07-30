@@ -1,18 +1,18 @@
-"""Sprint 14: boids flocking for patrolling drones in swarm mode.
+"""Boids flocking for patrolling drones in swarm mode.
 
 Classic separation/alignment/cohesion (Craig Reynolds) plus a "return to
-center" term so the flock doesn't wander off - unbounded boids has no
-notion of a patrol area to stay near, and this simulation only has a
-small finite map worth demonstrating on.
+center" term so the flock doesn't wander off. Plain boids has no notion
+of a patrol area to stay near, and this simulation only has a small
+finite map worth sticking to.
 
-Longitude is scaled by cos(latitude) so distances/vectors aren't visibly
+Longitude gets scaled by cos(latitude) so distances/vectors don't look
 stretched east-west at this latitude (~40 deg N, where a degree of
-longitude is only ~77% the length of a degree of latitude) - the same
-approximation config.py already uses for GPS noise, just applied per-axis
-here instead of uniformly.
+longitude is only about 77% the length of a degree of latitude).
+config.py uses the same approximation for GPS noise, just applied
+per-axis here instead of uniformly.
 
-Pure functions, no I/O - kept separate from Drone so it's cheap to unit
-test in isolation (see test_boids.py).
+These are pure functions with no I/O, kept separate from Drone so
+they're cheap to unit test in isolation (see test_boids.py).
 """
 
 import math

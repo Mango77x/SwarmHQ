@@ -40,13 +40,13 @@ _running = True
 _METERS_PER_DEGREE = 111_320.0
 MISSION_ASSIGNMENT_MODE_TOPIC = "system/mission-assignment-mode"
 
-# Sprint 16: this used to be the sole, fixed gate for both boids movement
-# and mission bidding, read once at startup. The backend can now flip it
-# live via a retained message on MISSION_ASSIGNMENT_MODE_TOPIC (published
-# on every backend startup too, not just future changes - see
-# MissionAssignmentModeHolder), so this is a mutable flag instead - SWARM_MODE
-# is only the fallback value used before that retained message actually
-# arrives (e.g. the very first tick or two after connecting).
+# Used to be the sole, fixed gate for both boids movement and mission
+# bidding, read once at startup. The backend can flip it live now, via a
+# retained message on MISSION_ASSIGNMENT_MODE_TOPIC published on every
+# backend startup as well as on future changes (see
+# MissionAssignmentModeHolder), so this is a mutable flag instead.
+# SWARM_MODE just becomes the fallback value used before that retained
+# message actually arrives, e.g. the first tick or two after connecting.
 _swarm_mode_active = SWARM_MODE
 
 BOIDS_PARAMS = BoidsParams(
@@ -91,8 +91,8 @@ def _distance_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> floa
 
 def _make_mission_assigned_handler(drone: Drone):
     # Runs on this drone's own MQTT client network thread (loop_start()),
-    # not the main tick loop - Drone.start_mission() takes its own lock,
-    # so this is safe to call concurrently with Drone.tick().
+    # separate from the main tick loop. Drone.start_mission() takes its
+    # own lock, so calling it concurrently with Drone.tick() is safe.
     def _on_mission_assigned(_client, _userdata, message):
         try:
             payload = json.loads(message.payload)
@@ -113,18 +113,18 @@ def _make_mission_assigned_handler(drone: Drone):
 
 
 def _make_mission_available_handler(drone: Drone, client: mqtt.Client):
-    # Sprint 14 (swarm mode): the auction-mode counterpart to
-    # _on_mission_assigned - instead of waiting to be told, an idle drone
-    # bids on what it hears about. Cost mirrors DroneRepository
-    # .findBestForMission's own distance/battery formula, so a drone bids
-    # on roughly the criteria the centralized engine would've judged it
-    # by, and the lowest bid (AuctionCoordinatorService picks it) is doing
-    # the same job that engine's ORDER BY does.
+    # The auction-mode counterpart to _on_mission_assigned: instead of
+    # waiting to be told, an idle drone bids on what it hears about. Cost
+    # mirrors DroneRepository.findBestForMission's own distance/battery
+    # formula, so a drone bids on roughly the criteria the centralized
+    # engine would've judged it by, and the lowest bid winning
+    # (AuctionCoordinatorService picks it) does the same job that
+    # engine's ORDER BY does.
     #
-    # Every drone is subscribed to missions/available unconditionally now
-    # (Sprint 16) - the backend simply never publishes to it outside
-    # auction mode, but the _swarm_mode_active check here is a cheap
-    # second guard against a stray message right at a mode-switch boundary.
+    # Every drone stays subscribed to missions/available unconditionally.
+    # The backend simply never publishes to it outside auction mode, but
+    # the _swarm_mode_active check here is a cheap second guard against a
+    # stray message right at a mode-switch boundary.
     def _on_mission_available(_client, _userdata, message):
         try:
             if not _swarm_mode_active or drone.status is not DroneStatus.PATROLLING:
@@ -141,10 +141,10 @@ def _make_mission_available_handler(drone: Drone, client: mqtt.Client):
 
 
 def _on_mode_message(_client, _userdata, message):
-    # Sprint 16: every drone client subscribes to this and gets the same
-    # retained message independently, so this fires once per drone for the
-    # same real-world event - only log when the value actually changes,
-    # not on every redundant per-client delivery.
+    # Every drone client subscribes to this and gets the same retained
+    # message independently, so this fires once per drone for the same
+    # real-world event. Only log when the value actually changes, to
+    # avoid a redundant line per client on every delivery.
     global _swarm_mode_active
     try:
         payload = json.loads(message.payload)
@@ -157,8 +157,8 @@ def _on_mode_message(_client, _userdata, message):
 
 
 def _connect_drone_client(drone: Drone) -> mqtt.Client:
-    # One MQTT connection per drone, authenticated as its own identity
-    # (Sprint 11) - required for the broker's per-drone ACL patterns
+    # One MQTT connection per drone, authenticated as its own identity.
+    # This is required for the broker's per-drone ACL patterns
     # (drones/%u/...) to actually mean anything; a single shared
     # connection for every drone would make "per-drone auth" hollow.
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, protocol=mqtt.MQTTv5, client_id=drone.external_id)
@@ -169,8 +169,8 @@ def _connect_drone_client(drone: Drone) -> mqtt.Client:
     mission_topic = f"drones/{drone.external_id}/mission"
     client.subscribe(mission_topic)
     client.message_callback_add(mission_topic, _make_mission_assigned_handler(drone))
-    # Sprint 16: always subscribed, not gated behind SWARM_MODE at startup -
-    # both bidding and the mode itself now follow the backend live instead.
+    # Always subscribed, rather than gated behind SWARM_MODE at startup -
+    # both bidding and the mode itself follow the backend live instead.
     client.subscribe("missions/available")
     client.message_callback_add("missions/available", _make_mission_available_handler(drone, client))
     client.subscribe(MISSION_ASSIGNMENT_MODE_TOPIC, qos=1)
@@ -185,21 +185,20 @@ def main() -> None:
 
     drones = _build_drones()
     clients = {drone.external_id: _connect_drone_client(drone) for drone in drones}
-    # Mission events that occur while a drone is signal_lost (Sprint 13) -
-    # like telemetry, they can't get through a dropped connection either,
-    # so they're held here and flushed together the moment it's back,
-    # rather than silently lost (which would strand a mission ACTIVE
-    # forever with no completion/failure ever reported).
+    # Mission events that occur while a drone is signal_lost can't get
+    # through a dropped connection either, same as telemetry - so they're
+    # held here and flushed together the moment it's back, instead of
+    # being silently lost (which would strand a mission ACTIVE forever
+    # with no completion/failure ever reported).
     pending_mission_events: dict[str, list] = {drone.external_id: [] for drone in drones}
-    # Sprint 14 (swarm mode): each currently-patrolling drone's position
-    # as of the previous tick, so this tick's boids step can compute a
-    # velocity (this tick's position minus last tick's, per drone) for
-    # the alignment rule - a lone Drone has no notion of its neighbors'
-    # headings, so this lives at the loop level instead. Replaced wholesale
-    # each tick (not merged) - a drone missing from it (just resumed
-    # patrolling after a mission/RTB) gets zero velocity for one tick
-    # rather than a stale, misleadingly large one from whenever it last
-    # patrolled.
+    # Each currently-patrolling drone's position as of the previous tick,
+    # so this tick's boids step can compute a velocity (this tick's
+    # position minus last tick's, per drone) for the alignment rule. A
+    # lone Drone has no notion of its neighbors' headings, so this lives
+    # at the loop level instead. Replaced wholesale each tick rather than
+    # merged: a drone missing from it (just resumed patrolling after a
+    # mission/RTB) gets zero velocity for one tick instead of a stale,
+    # misleadingly large one left over from whenever it last patrolled.
     last_patrol_positions: dict[str, tuple[float, float]] = {}
     log.info("Connected to %s:%s (TLS=%s) - simulating %d drone(s), each as its own identity "
               "(initial mode: %s, follows the backend live from here)",

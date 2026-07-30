@@ -51,8 +51,8 @@ public class DroneService {
     /**
      * Upserts the drone identified by externalId with a freshly received
      * telemetry reading, then pushes its new state to every client
-     * subscribed to {@link #DRONE_UPDATES_TOPIC} - the live counterpart to
-     * {@link #listAll()}'s REST snapshot (Sprint 7).
+     * subscribed to {@link #DRONE_UPDATES_TOPIC} - the live counterpart
+     * to {@link #listAll()}'s REST snapshot.
      */
     public void applyTelemetry(String externalId, TelemetryPayload payload) {
         Optional<Drone> existing = droneRepository.findByExternalId(externalId);
@@ -64,10 +64,10 @@ public class DroneService {
                 .orElseGet(() -> new Drone(externalId, payload.type(), DroneStatus.valueOf(payload.status()), payload.batteryPercent()));
 
         Instant timestamp = payload.timestamp() != null ? payload.timestamp() : Instant.now();
-        // Sprint 12: persist/broadcast/geofence-check the Kalman-smoothed
-        // estimate, not the raw (noisy, per the simulator's injected GPS
-        // error) measurement - "smooth before persisting/displaying", not
-        // smooth as a separate, optional step.
+        // Persists/broadcasts/geofence-checks the Kalman-smoothed
+        // estimate rather than the raw measurement (noisy, per the
+        // simulator's injected GPS error) - smoothing happens before
+        // persisting/displaying, not as a separate, optional step.
         Coordinate smoothed = kalmanFilterService.smooth(externalId, payload.lon(), payload.lat(), timestamp);
         drone.setPosition(GEOMETRY_FACTORY.createPoint(smoothed));
         drone.setBatteryPercent(payload.batteryPercent());
@@ -81,17 +81,17 @@ public class DroneService {
 
     /**
      * Flips a drone to {@code ON_MISSION} the moment
-     * {@code MissionAssignmentService} assigns it a mission (Sprint 10) -
-     * not waiting for the simulator's next telemetry tick to confirm it,
-     * since the backend is the one deciding the assignment and needs the
-     * drone to read as unavailable immediately (otherwise the same
-     * assignment pass could hand it a second mission before its own
-     * telemetry catches up). Battery/position are unchanged, so only the
+     * {@code MissionAssignmentService} assigns it a mission, without
+     * waiting for the simulator's next telemetry tick to confirm it. The
+     * backend is the one deciding the assignment and needs the drone to
+     * read as unavailable immediately, otherwise the same assignment
+     * pass could hand it a second mission before its own telemetry
+     * catches up. Battery/position are unchanged, so only the
      * status-change check in {@link AlertService#evaluate} does anything
      * here. The reverse transition (mission ends → back to
      * {@code PATROLLING}) needs no equivalent method - the simulator
-     * resumes patrolling on its own and reports it via ordinary telemetry,
-     * same as any other status change.
+     * resumes patrolling on its own and reports it via ordinary
+     * telemetry, same as any other status change.
      */
     public void markOnMission(Drone drone) {
         DroneStatus previousStatus = drone.getStatus();

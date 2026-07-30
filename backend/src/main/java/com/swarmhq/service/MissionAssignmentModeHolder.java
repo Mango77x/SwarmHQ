@@ -16,20 +16,20 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Runtime-mutable replacement for what used to be a fixed
- * {@code swarmhq.mission-assignment.mode} read once at startup - both
+ * {@code swarmhq.mission-assignment.mode} read once at startup. Both
  * {@link MissionAssignmentService} and {@link AuctionCoordinatorService}
- * now always exist as beans, each checking this holder on its own tick
- * instead of one of them being permanently absent for the app's whole
+ * now always exist as beans, each checking this holder on its own tick,
+ * rather than one of them being permanently absent for the app's whole
  * lifetime via {@code @ConditionalOnProperty}. This is what makes the two
  * strategies toggleable from the frontend without a restart.
  *
- * Every change is broadcast on two channels, not just held in memory:
- * a retained MQTT message on {@link #MODE_TOPIC} (so the simulator's own
- * behavior - boids movement, whether a drone bids on missions - follows
- * live instead of only reading a fixed env var at its own startup) and a
- * STOMP broadcast on {@link #MODE_UPDATES_TOPIC} (so every connected
- * frontend tab stays in sync, the same "push, don't poll" pattern as
- * every other live update in this project).
+ * Every change goes out on two channels rather than just sitting in
+ * memory: a retained MQTT message on {@link #MODE_TOPIC} so the
+ * simulator's own behavior (boids movement, whether a drone bids on
+ * missions) follows live instead of only reading a fixed env var at its
+ * own startup, and a STOMP broadcast on {@link #MODE_UPDATES_TOPIC} so
+ * every connected frontend tab stays in sync - the same push-don't-poll
+ * pattern as every other live update in this project.
  */
 @Component
 public class MissionAssignmentModeHolder {
@@ -66,8 +66,8 @@ public class MissionAssignmentModeHolder {
     }
 
     /**
-     * Published retained on startup too (not just on every future change) -
-     * a simulator connecting before anyone ever touches the toggle still
+     * Published retained on startup as well as on every future change - a
+     * simulator connecting before anyone ever touches the toggle still
      * needs to learn the real mode immediately rather than guessing from
      * its own local default.
      */

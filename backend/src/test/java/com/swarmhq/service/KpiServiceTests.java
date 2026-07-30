@@ -26,12 +26,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * @Transactional so every row this test writes rolls back automatically.
- * Every assertion here compares against a "before" snapshot rather than an
- * absolute value, since the local dev database carries real data from
- * manual/simulator testing (drones, events, and - since Sprint 10 -
- * missions too). The scheduler is disabled (see MissionAssignmentService)
- * so its background tick can't additionally mutate Mission/Drone state
- * mid-test.
+ * Every assertion here compares against a "before" snapshot rather than
+ * an absolute value, because the local dev database carries real data
+ * from manual/simulator testing: drones, events, and missions too. The
+ * scheduler is disabled (see MissionAssignmentService) so its background
+ * tick can't also mutate Mission/Drone state mid-test.
  */
 @SpringBootTest
 @TestPropertySource(properties = "swarmhq.mission-assignment.scheduler-enabled=false")

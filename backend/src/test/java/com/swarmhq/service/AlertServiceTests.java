@@ -19,23 +19,25 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Drives DroneService.applyTelemetry() directly (like DroneServiceWebSocketTests)
- * rather than over MQTT - DroneTelemetryListenerTests already covers that
- * transport, this is about the alerting transitions themselves. Every
- * check here is transition-based, so each test applies at least two
- * telemetry readings and asserts the *count* of matching events, not just
- * their presence - the whole point is exactly one event per crossing, not
- * one per tick spent past it.
+ * Drives DroneService.applyTelemetry() directly (like
+ * DroneServiceWebSocketTests) rather than over MQTT. DroneTelemetryListenerTests
+ * already covers that transport; this one is about the alerting
+ * transitions themselves. Every check in AlertService is transition-based,
+ * so each test applies at least two telemetry readings and asserts the
+ * *count* of matching events, not just whether one showed up - the point
+ * being to fire exactly once per crossing, never once per tick spent past
+ * it.
  *
- * scheduler-enabled=false (same convention as MissionAssignmentServiceTests/
- * KpiServiceTests): this test's own drone is PATROLLING with a high
- * battery, an eligible target for MissionAssignmentService's real
- * scheduled pass against the seeded demo missions (V4). Without this, a
- * background tick can assign it a mission mid-test - a second, unplanned
- * STATUS_CHANGE event (found via a clean-database CI run; a local dev DB
- * with years of accumulated leftover rows apparently never left the
- * seeded missions available long enough to hit this) and, on cleanup, a
- * foreign-key violation deleting a drone a real Mission still references.
+ * scheduler-enabled=false, same convention as MissionAssignmentServiceTests/
+ * KpiServiceTests: this test's own drone is PATROLLING with a high
+ * battery, which makes it an eligible target for MissionAssignmentService's
+ * real scheduled pass against the seeded demo missions (V4). Without
+ * disabling that, a background tick can assign it a mission mid-test,
+ * which produces a second, unplanned STATUS_CHANGE event (turned up on a
+ * clean-database CI run - a local dev DB with years of leftover rows
+ * apparently never left the seeded missions available long enough to hit
+ * this) and, on cleanup, a foreign-key violation from deleting a drone a
+ * real Mission still references.
  */
 @SpringBootTest
 @TestPropertySource(properties = "swarmhq.mission-assignment.scheduler-enabled=false")
@@ -94,12 +96,12 @@ class AlertServiceTests {
     @Test
     void raisesSignalLostAndRecoveredOnTransition() {
         // SignalMonitorService is what actually flips a real drone to
-        // SIGNAL_LOST (Sprint 13, off a telemetry timeout, not a reading) -
-        // but AlertService.evaluate() itself doesn't care where a status
-        // transition came from, and "SIGNAL_LOST" is (like every other
-        // DroneStatus) a value TelemetryPayload.status() can legitimately
-        // carry, so driving it through applyTelemetry() here exercises the
-        // exact same evaluate() branch without needing the watchdog.
+        // SIGNAL_LOST, off a telemetry timeout rather than a reading. But
+        // AlertService.evaluate() doesn't care where a status transition
+        // came from, and SIGNAL_LOST is a value TelemetryPayload.status()
+        // can carry like any other DroneStatus, so driving it through
+        // applyTelemetry() here exercises the same evaluate() branch
+        // without needing the watchdog itself.
         telemetry(80, "PATROLLING", OUTSIDE_ZONE_LAT, OUTSIDE_ZONE_LON);
         telemetry(78, "SIGNAL_LOST", OUTSIDE_ZONE_LAT, OUTSIDE_ZONE_LON);
         telemetry(76, "PATROLLING", OUTSIDE_ZONE_LAT, OUTSIDE_ZONE_LON);
@@ -111,14 +113,14 @@ class AlertServiceTests {
     @Test
     void raisesEnteredAndExitedRiskZoneOnBoundaryCrossings() {
         telemetry(90, "PATROLLING", OUTSIDE_ZONE_LAT, OUTSIDE_ZONE_LON);
-        // Several readings at the same point, not one abrupt jump: since
-        // Sprint 12, the *persisted* (geofence-checked) position is the
-        // Kalman-smoothed estimate, which blends toward a new raw reading
-        // rather than snapping to it instantly - reusing the exact same
-        // point lets the estimate actually converge there before the
-        // zone-boundary assertion, without weakening what's being tested
-        // (still exactly one ENTERED and one EXITED for the whole
-        // approach-and-leave sequence).
+        // Several readings at the same point instead of one abrupt jump:
+        // the persisted, geofence-checked position is the Kalman-smoothed
+        // estimate, which blends toward a new raw reading rather than
+        // snapping to it instantly. Reusing the same point lets the
+        // estimate actually converge there before the zone-boundary
+        // assertion runs, without weakening what's being tested - still
+        // exactly one ENTERED and one EXITED for the whole approach-and-leave
+        // sequence.
         for (int i = 0; i < 5; i++) {
             telemetry(90, "PATROLLING", IN_ZONE_LAT, IN_ZONE_LON); // enters (once, on convergence)
         }

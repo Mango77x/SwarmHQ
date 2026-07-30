@@ -41,12 +41,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * listener's own save happens on a different thread/transaction than this
  * test method.
  *
- * No {@code @TestPropertySource}/{@code @DirtiesContext} needed anymore
- * (Sprint 16): auction mode is a runtime-mutable
- * {@link MissionAssignmentModeHolder}, not a startup property, so this
- * class shares the same cached default context every other bare
- * {@code @SpringBootTest} class uses instead of spinning up (and having to
- * clean up) its own. That holder is a real process-wide singleton though -
+ * No {@code @TestPropertySource}/{@code @DirtiesContext} needed anymore:
+ * auction mode is a runtime-mutable {@link MissionAssignmentModeHolder}
+ * rather than a startup property, so this class shares the same cached
+ * default context every other bare {@code @SpringBootTest} class uses
+ * instead of spinning up (and having to clean up) its own. That holder
+ * is a real process-wide singleton though -
  * {@link #enableAuctionMode()}/{@link #cleanup()} set it to AUCTION before
  * this test and reset it back to CENTRALIZED after, regardless of outcome,
  * or AuctionCoordinatorService's real tick would keep actually running for

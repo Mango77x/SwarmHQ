@@ -16,18 +16,17 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * The "network resilience" differentiation layer (Sprint 13) - a
- * {@code @Scheduled} watchdog, the mirror image of
- * {@link MissionAssignmentService}'s scheduled pass: instead of reacting to
- * a message that arrived, this reacts to messages that stopped arriving. A
- * drone whose telemetry goes quiet for longer than the timeout is marked
- * {@code SIGNAL_LOST} (an existing {@code DroneStatus}/{@code EventType}
- * pair, unused until now) - its last known position is left untouched,
- * since "lost signal" means exactly that: the last thing heard from it is
- * still the best guess of where it is. Recovery needs no watchdog
- * counterpart - {@link AlertService#evaluate} raises {@code SIGNAL_RECOVERED}
- * for free the moment {@link DroneService#applyTelemetry} sees a fresh
- * reading from a drone whose previous status was {@code SIGNAL_LOST}.
+ * The network-resilience layer: a {@code @Scheduled} watchdog that's the
+ * mirror image of {@link MissionAssignmentService}'s scheduled pass. That
+ * one reacts to a message that arrived; this one reacts to messages that
+ * stopped arriving. A drone whose telemetry goes quiet longer than the
+ * timeout gets marked {@code SIGNAL_LOST}, and its last known position is
+ * left untouched - "lost signal" means the last thing heard from it is
+ * still the best guess of where it is. There's no watchdog counterpart
+ * needed for recovery: {@link AlertService#evaluate} raises {@code
+ * SIGNAL_RECOVERED} on its own the moment {@link
+ * DroneService#applyTelemetry} sees a fresh reading from a drone whose
+ * previous status was {@code SIGNAL_LOST}.
  */
 @Service
 public class SignalMonitorService {
@@ -65,9 +64,10 @@ public class SignalMonitorService {
     }
 
     /**
-     * Re-evaluates every drone not already {@code SIGNAL_LOST} each tick,
-     * same "re-check everything, not just what changed" shape as
-     * {@link MissionAssignmentService#assignPendingMissions()}.
+     * Re-evaluates every drone not already {@code SIGNAL_LOST} each tick.
+     * {@link MissionAssignmentService#assignPendingMissions()} follows
+     * the same shape, re-checking everything rather than tracking what
+     * changed.
      */
     public void checkForSignalLoss() {
         Instant threshold = Instant.now().minus(timeout);

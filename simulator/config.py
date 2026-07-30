@@ -3,7 +3,7 @@ import os
 MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "8883"))
 
-# TLS + per-drone auth (Sprint 11) - each drone connects as its own
+# TLS + per-drone auth: each drone connects as its own
 # username ("drone-1", "drone-2", ...) built from its external_id, sharing
 # one password (the fleet's single trust tier) since generating/distributing
 # genuinely distinct per-unit secrets is out of scope for this project.
@@ -23,52 +23,54 @@ TICKS_PER_SEGMENT = int(os.environ.get("TICKS_PER_SEGMENT", "10"))
 BATTERY_DRAIN_PER_TICK = float(os.environ.get("BATTERY_DRAIN_PER_TICK", "0.5"))
 LOW_BATTERY_THRESHOLD = float(os.environ.get("LOW_BATTERY_THRESHOLD", "20"))
 
-# Sprint 12: injected into published telemetry only - the true simulated
-# position (route progress, waypoint/mission arrival) is never affected,
-# only what gets reported over MQTT, the same way a real drone's actual
-# position and its noisy GPS reading of that position are two different
-# things. 5m matches typical civilian GPS accuracy. Converted from meters
-# to degrees using a fixed ~111,320 m/degree - accurate enough at this
-# demo's small scale and roughly fixed latitude (Madrid), not meant to
-# hold globally.
+# Injected into published telemetry only - the true simulated position
+# (route progress, waypoint/mission arrival) is never touched, only what
+# gets reported over MQTT, same as how a real drone's actual position and
+# its noisy GPS reading of that position are two different things. 5m
+# matches typical civilian GPS accuracy. Converted from meters to degrees
+# using a fixed ~111,320 m/degree, accurate enough at this demo's small
+# scale and roughly fixed latitude (Madrid) - it won't hold up globally,
+# but doesn't need to here.
 GPS_NOISE_STD_METERS = float(os.environ.get("GPS_NOISE_STD_METERS", "5.0"))
 GPS_NOISE_STD_DEGREES = GPS_NOISE_STD_METERS / 111_320.0
 
-# Sprint 13: simulates a dropped radio connection, not a dropped GPS fix -
-# unlike GPS noise, this suppresses publishing entirely for a while rather
-# than corrupting what's published. A drone keeps flying (and draining
-# battery/completing missions) while "out of contact" - only the backend
-# loses track of it, exactly like a real field unit that's still airborne
-# behind a hill with no line of sight to its ground station. Per-tick
-# chance of 0.01 at the default 2s publish interval is roughly one outage
-# every ~200s per drone; a 5-15 tick duration is a 10-30s outage, long
-# enough to be clearly visible (SIGNAL_LOST persisting for several backend
-# watchdog ticks) without stalling a demo for minutes.
+# Simulates a dropped radio connection rather than a dropped GPS fix. GPS
+# noise corrupts what gets published; this suppresses publishing entirely
+# for a while instead. A drone keeps flying, draining battery and
+# completing missions, while "out of contact" - only the backend loses
+# track of it, the way a real field unit still airborne behind a hill has
+# no line of sight to its ground station without having actually crashed.
+# A per-tick chance of 0.01 at the default 2s publish interval works out
+# to roughly one outage every ~200s per drone; a 5-15 tick duration gives
+# a 10-30s outage, long enough to see SIGNAL_LOST persist through several
+# backend watchdog ticks without stalling a demo for minutes.
 SIGNAL_LOSS_CHANCE_PER_TICK = float(os.environ.get("SIGNAL_LOSS_CHANCE_PER_TICK", "0.01"))
 SIGNAL_LOSS_MIN_TICKS = int(os.environ.get("SIGNAL_LOSS_MIN_TICKS", "5"))
 SIGNAL_LOSS_MAX_TICKS = int(os.environ.get("SIGNAL_LOSS_MAX_TICKS", "15"))
 
-# Sprint 14: the two halves of "swarm mode" - patrolling movement becomes
-# boids flocking instead of each drone's own fixed square route, and idle
-# (PATROLLING) drones bid on missions/available instead of waiting for a
-# direct centralized assignment. Pair with the backend's own
-# swarmhq.mission-assignment.mode=auction - the bidding half of this flag
-# does nothing on its own if the backend is still deciding centrally, and
-# vice versa an auction with SWARM_MODE=false backends just never gets bids.
+# The two halves of "swarm mode": patrolling movement becomes boids
+# flocking instead of each drone's own fixed square route, and idle
+# (PATROLLING) drones bid on missions/available instead of waiting to be
+# assigned centrally. Needs pairing with the backend's own
+# swarmhq.mission-assignment.mode=auction - flip only this and the
+# bidding half does nothing since the backend is still deciding
+# centrally; flip only that and an auction backend with SWARM_MODE=false
+# never gets any bids.
 SWARM_MODE = os.environ.get("SWARM_MODE", "false").lower() == "true"
 
-# Degrees, not meters, throughout - boids.py works directly in lat/lon
-# space (see its own module docstring for the longitude-scaling reasoning),
-# so these are already the right unit for BoidsParams without conversion.
+# Everything here is in degrees rather than meters - boids.py works
+# directly in lat/lon space (see its own module docstring for the
+# longitude-scaling reasoning), so these are already the right unit for
+# BoidsParams without conversion.
 BOIDS_NEIGHBOR_RADIUS_DEGREES = float(os.environ.get("BOIDS_NEIGHBOR_RADIUS_DEGREES", "0.02"))
 BOIDS_SEPARATION_WEIGHT = float(os.environ.get("BOIDS_SEPARATION_WEIGHT", "1.5"))
 BOIDS_ALIGNMENT_WEIGHT = float(os.environ.get("BOIDS_ALIGNMENT_WEIGHT", "1.0"))
 BOIDS_COHESION_WEIGHT = float(os.environ.get("BOIDS_COHESION_WEIGHT", "1.0"))
-# Gentle on purpose - just enough to keep the flock from wandering off
-# indefinitely, not so strong it overrides separation/alignment/cohesion
-# and collapses the flock onto a single point.
+# Kept gentle on purpose: just enough to stop the flock from wandering
+# off indefinitely, weak enough that it doesn't override
+# separation/alignment/cohesion and collapse the flock onto a single point.
 BOIDS_CENTER_WEIGHT = float(os.environ.get("BOIDS_CENTER_WEIGHT", "0.5"))
-# ~0.0008 deg/tick is comparable to the original fixed-route patrol speed
-# (a 0.006 deg square side over TICKS_PER_SEGMENT=10 ticks, ~0.0006 deg/tick)
-# - similar pace, not a race and not a crawl.
+# ~0.0008 deg/tick roughly matches the original fixed-route patrol speed
+# (a 0.006 deg square side over TICKS_PER_SEGMENT=10 ticks works out to
+# ~0.0006 deg/tick) - similar pace, neither a race nor a crawl.
 BOIDS_MAX_STEP_DEGREES = float(os.environ.get("BOIDS_MAX_STEP_DEGREES", "0.0008"))

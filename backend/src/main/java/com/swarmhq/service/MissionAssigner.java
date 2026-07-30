@@ -20,10 +20,10 @@ import java.util.Map;
  * The one place a mission actually gets handed to a drone -
  * {@code Mission}/{@code Drone} state changes plus the
  * {@code drones/{externalId}/mission} publish. Shared by both assignment
- * strategies (Sprint 10's centralized {@link MissionAssignmentService} and
- * Sprint 14's {@link AuctionCoordinatorService}) precisely so a drone never
- * has to know or care which one decided it should fly a given mission - the
- * assignment contract it receives is identical either way.
+ * strategies, the centralized {@link MissionAssignmentService} and the
+ * auction-based {@link AuctionCoordinatorService}, so a drone never has
+ * to know or care which one decided it should fly a given mission. The
+ * assignment contract it receives looks identical either way.
  */
 @Component
 public class MissionAssigner {

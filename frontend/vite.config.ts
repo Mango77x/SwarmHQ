@@ -8,10 +8,10 @@ export default defineConfig({
   // profile) - without this, the production build's asset paths are
   // root-relative and 404 once actually deployed under a subpath.
   base: '/app/',
-  // sockjs-client (a live-updates dependency, Sprint 7) references the
-  // Node global object; without this it's a ReferenceError at module
-  // load that aborts the whole bundle before React ever mounts (blank
-  // page, empty #root, no console error visible from outside the module).
+  // sockjs-client (a live-updates dependency) references the Node global
+  // object; without this it throws a ReferenceError at module load,
+  // aborting the whole bundle before React ever mounts - a blank page,
+  // empty #root, no console error visible from outside the module.
   define: {
     global: 'globalThis',
   },

@@ -10,9 +10,9 @@ import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 
 /**
- * STOMP endpoint and broker wiring. {@code DroneService} publishes to
- * {@code /topic/drones} (Sprint 7) - clients connect to {@code /ws} and
- * subscribe there for live drone updates instead of polling REST.
+ * STOMP endpoint and broker wiring. Clients connect to {@code /ws} and
+ * subscribe to {@code /topic/drones} for live drone updates ({@code
+ * DroneService} publishes there) rather than polling REST.
  */
 @Configuration
 @EnableWebSocketMessageBroker
@@ -30,24 +30,23 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     }
 
     /**
-     * Explicit and shared on purpose (Sprint 16 postmortem): with no
-     * scheduler wired here, {@code enableSimpleBroker} provisions its own
-     * internal one for the STOMP broker's outbound processing - and
-     * because it's the only {@code TaskScheduler} bean Spring can find
-     * unambiguously, every {@code @Scheduled} method in the app
+     * Explicit and shared: leave this unset and {@code enableSimpleBroker}
+     * quietly provisions its own scheduler for the STOMP broker's outbound
+     * processing. That becomes the only {@code TaskScheduler} bean Spring
+     * can find, so every {@code @Scheduled} method in the app
      * (MissionAssignmentService, AuctionCoordinatorService,
-     * SignalMonitorService) silently ends up sharing THAT pool too,
-     * instead of the {@code spring.task.scheduling.pool.size}-configured
-     * one Boot would otherwise auto-create (its auto-configuration backs
-     * off once any {@code TaskScheduler} bean already exists). Confirmed
-     * by every {@code @Scheduled} log line showing thread names like
-     * "MessageBroker-3", not "scheduling-3". That pool defaults small
-     * enough that adding a real, always-on 1s tick
-     * (AuctionCoordinatorService, Sprint 16) was enough contention for a
-     * slower/more contended CI runner to delay it past a test's own
-     * timeout - see HELP.md. A pool this small was already borderline for
-     * three competing @Scheduled tasks regardless of the broker sharing
-     * it, so this is sized for that, not just the broker's own needs.
+     * SignalMonitorService) ends up sharing that same pool instead of the
+     * one {@code spring.task.scheduling.pool.size} would otherwise
+     * configure (Boot's auto-configuration backs off once any {@code
+     * TaskScheduler} bean already exists). Found this by noticing
+     * {@code @Scheduled} log lines using thread names like "MessageBroker-3"
+     * instead of "scheduling-3". That default pool is small enough that
+     * adding a real, always-on 1s tick (AuctionCoordinatorService) created
+     * just enough contention to delay a scheduled task past a test's own
+     * timeout on a slower CI runner - see HELP.md. Three competing
+     * {@code @Scheduled} tasks would already have made a small pool
+     * borderline even without the broker sharing it, so this size covers
+     * both.
      */
     @Bean
     public TaskScheduler taskScheduler() {

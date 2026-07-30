@@ -1,7 +1,7 @@
-"""Sprint 14: unit tests for boids.py's pure flocking math - no MQTT/Drone
-involved, just the position-in/position-out function, matching the level
-of rigor the backend's own tests hold themselves to, applied to the one
-piece of the simulator that's pure enough to unit test cheaply."""
+"""Unit tests for boids.py's pure flocking math. No MQTT/Drone involved,
+just the position-in/position-out function - the one piece of the
+simulator that's pure enough to unit test cheaply, held to the same
+level of rigor as the backend's own tests."""
 
 import math
 

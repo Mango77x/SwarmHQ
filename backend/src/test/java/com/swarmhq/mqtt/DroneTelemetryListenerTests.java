@@ -66,9 +66,10 @@ class DroneTelemetryListenerTests {
         publisher.publish("drones/" + EXTERNAL_ID + "/telemetry", message);
 
         Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
-            // assertTrue (not orElseThrow) so a not-yet-persisted drone is an
-            // AssertionError Awaitility retries on, not an exception it treats
-            // as a hard failure on the first poll.
+            // assertTrue instead of orElseThrow, so a not-yet-persisted
+            // drone raises an AssertionError Awaitility retries on rather
+            // than an exception it treats as a hard failure on the first
+            // poll.
             var maybeDrone = droneRepository.findByExternalId(EXTERNAL_ID);
             assertTrue(maybeDrone.isPresent(), "drone not persisted yet");
             var drone = maybeDrone.get();

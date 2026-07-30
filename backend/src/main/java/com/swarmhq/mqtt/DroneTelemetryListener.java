@@ -18,9 +18,9 @@ import java.util.regex.Pattern;
 /**
  * Translates drone telemetry off MQTT into a {@link DroneService} call -
  * persistence and the live STOMP push both live there (same
- * thin-listener/service-layer split as {@code DroneController}). Alerting/
- * business logic (low battery, geofencing, ...) is not this listener's
- * job - that's Sprint 8.
+ * thin-listener/service-layer split as {@code DroneController}). Alerting
+ * and other business logic (low battery, geofencing, ...) lives in
+ * AlertService, wired in through DroneService rather than handled here.
  */
 @Component
 public class DroneTelemetryListener {

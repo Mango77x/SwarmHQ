@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { fetchKpis, type KpiSummary } from "../api/kpis";
 
-// Aggregate stats don't need push-on-every-write freshness the way drone
-// positions/alerts do (Sprint 7/8) - polling every few seconds is plenty
-// for a dashboard, and far simpler than broadcasting a full recompute on
-// every single mission/event/telemetry write.
+// Aggregate stats don't need push-on-every-write freshness the way
+// drone positions/alerts do. Polling every few seconds is plenty for a
+// dashboard, and far simpler than broadcasting a full recompute on
+// every mission/event/telemetry write.
 const POLL_INTERVAL_MS = 5000;
 
 function Tile({ label, value, alert }: { label: string; value: string; alert?: boolean }) {

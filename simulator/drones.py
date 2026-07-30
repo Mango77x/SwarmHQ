@@ -18,7 +18,7 @@ class DroneStatus(Enum):
 @dataclass
 class Drone:
     """A simulated drone patrolling a fixed waypoint loop, occasionally
-    interrupted by an assigned mission (Sprint 10).
+    interrupted by an assigned mission.
 
     Battery drains while patrolling or flying a mission; once it hits the
     low-battery threshold the drone breaks off to base (route[0]) instead
@@ -69,9 +69,9 @@ class Drone:
 
     @property
     def signal_lost(self) -> bool:
-        """True while simulating a dropped connection (Sprint 13) - the
-        drone still flies/ticks normally, main.py just skips publishing
-        for it until this clears."""
+        """True while simulating a dropped connection. The drone still
+        flies and ticks normally; main.py just skips publishing for it
+        until this clears."""
         return self._signal_lost_ticks_remaining > 0
 
     def start_mission(self, mission_id: int, waypoints: List[Waypoint]) -> bool:
@@ -93,14 +93,14 @@ class Drone:
         mission-status event ({"missionId", "status", ["reason"]}) if the
         active mission just completed or was aborted this tick, else None.
 
-        position_override (Sprint 14, swarm mode): a position computed
-        externally (boids.compute_step, over every patrolling drone at
-        once - not something a single Drone can compute about itself) to
-        use instead of following the fixed waypoint route this tick.
-        Ignored unless the drone is still PATROLLING once battery/mission
-        transitions have been applied - a drone that just broke off to
-        RETURNING or is ON_MISSION always flies its own route/mission
-        regardless of what the flock is doing."""
+        position_override (swarm mode): a position computed externally
+        (boids.compute_step, over every patrolling drone at once - a
+        single Drone has no way to compute this about itself) to use
+        instead of following the fixed waypoint route this tick. Ignored
+        unless the drone is still PATROLLING once battery/mission
+        transitions have been applied; a drone that just broke off to
+        RETURNING or is ON_MISSION always flies its own route or mission,
+        whatever the flock is doing."""
         with self._lock:
             self._pending_mission_event = None
             self._drain_battery_if_active()
@@ -113,9 +113,9 @@ class Drone:
 
     def to_telemetry_payload(self) -> dict:
         # Noise applied here only - self.lat/self.lon (the true simulated
-        # position driving route/mission progress) are never touched, same
-        # as a real drone's actual position vs. its noisy GPS reading of
-        # that position being two different things (Sprint 12).
+        # position driving route/mission progress) are never touched. A
+        # real drone's actual position and its noisy GPS reading of that
+        # position work the same way: two different things.
         noisy_lat = self.lat + np.random.normal(0.0, self.gps_noise_std_degrees)
         noisy_lon = self.lon + np.random.normal(0.0, self.gps_noise_std_degrees)
         return {

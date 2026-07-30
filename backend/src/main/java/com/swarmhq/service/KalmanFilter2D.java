@@ -6,19 +6,19 @@ import java.time.Duration;
 import java.time.Instant;
 
 /**
- * A per-drone constant-velocity 2D Kalman filter (Sprint 12) - state
- * {@code [lon, lat, vLon, vLat]}. Smooths noisy GPS measurements by fusing
- * each one with a motion-model prediction instead of trusting it verbatim
- * - real sensor fusion, not just averaging.
+ * A per-drone constant-velocity 2D Kalman filter - state {@code [lon,
+ * lat, vLon, vLat]}. Smooths noisy GPS measurements by fusing each one
+ * with a motion-model prediction rather than trusting it verbatim, which
+ * is what real sensor fusion looks like as opposed to plain averaging.
  *
- * Not a Spring bean: {@link KalmanFilterService} owns one mutable instance
- * per drone. Matrix operations below are small, generic 4x4/4x1 helpers
- * (not a linear-algebra library dependency) since every matrix here is a
- * fixed 4x4 or smaller - deliberately not the full continuous
- * white-noise-acceleration form for Q, which would need a much more
- * involved derivation for a marginal accuracy gain at this project's
- * scale; correctness of the predict/update recursion itself is what
- * demonstrates the sensor-fusion concept.
+ * Not a Spring bean: {@link KalmanFilterService} owns one mutable
+ * instance per drone. The matrix operations below are small, generic
+ * 4x4/4x1 helpers rather than a linear-algebra library dependency, since
+ * every matrix here is fixed at 4x4 or smaller. Q also skips the full
+ * continuous white-noise-acceleration form, which would need a much more
+ * involved derivation for a marginal accuracy gain at this scale -
+ * getting the predict/update recursion right is what actually
+ * demonstrates the sensor-fusion concept here.
  */
 class KalmanFilter2D {
 
@@ -26,12 +26,12 @@ class KalmanFilter2D {
     // is trusted vs. how sharply a drone might actually maneuver.
     private static final double POSITION_PROCESS_NOISE = 1e-10;
     private static final double VELOCITY_PROCESS_NOISE = 1e-10;
-    // Degrees^2 - assumed GPS measurement noise. A real filter has no
-    // privileged knowledge of a simulator's *actual* injected noise; this
-    // is tuned to roughly the same order of magnitude as it (see
-    // simulator/config.py's GPS_NOISE_STD_METERS), the same way a real
-    // system's R comes from a sensor's known characteristics, not the
-    // ground truth it's trying to recover.
+    // Degrees^2 - assumed GPS measurement noise. A real filter never has
+    // privileged knowledge of the true injected noise, so this is just
+    // tuned to roughly the same order of magnitude as the simulator's own
+    // value (see simulator/config.py's GPS_NOISE_STD_METERS). A real
+    // system's R comes from a sensor's known characteristics the same
+    // way, never from the ground truth it's actually trying to recover.
     private static final double MEASUREMENT_NOISE = 4e-9;
 
     private double[] x; // [lon, lat, vLon, vLat]

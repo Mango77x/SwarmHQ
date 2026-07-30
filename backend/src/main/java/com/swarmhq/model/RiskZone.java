@@ -9,10 +9,10 @@ import jakarta.persistence.Table;
 import org.locationtech.jts.geom.Polygon;
 
 /**
- * A geofenced danger area (Sprint 8) - AlertService raises ENTERED_RISK_ZONE
- * / EXITED_RISK_ZONE events when a drone's position transitions across one
- * of these. Static for now (seeded by Flyway); no CRUD API - defining new
- * zones isn't a use case yet.
+ * A geofenced danger area. AlertService raises ENTERED_RISK_ZONE/
+ * EXITED_RISK_ZONE events when a drone's position crosses one of these.
+ * Static for now, seeded by Flyway - there's no CRUD API yet since
+ * defining new zones at runtime isn't needed.
  */
 @Entity
 @Table(name = "risk_zones")

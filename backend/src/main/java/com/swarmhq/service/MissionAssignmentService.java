@@ -15,18 +15,18 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * The "constrained mission assignment" engine (Sprint 10) - a greedy
- * scheduled pass matching {@code PENDING} missions to eligible drones,
- * turning the project from "a panel that shows data" into "a system that
- * makes decisions" (see PROJECT_OVERVIEW.md).
+ * The "constrained mission assignment" engine: a greedy scheduled pass
+ * matching {@code PENDING} missions to eligible drones, turning the
+ * project from "a panel that shows data" into "a system that makes
+ * decisions" (see PROJECT_OVERVIEW.md).
  *
- * This is the {@code centralized} assignment strategy - the alternative,
- * {@code auction} (Sprint 14, {@link AuctionCoordinatorService}), only
- * decides differently *which* drone gets a mission; both hand it off the
- * same way via {@link MissionAssigner}. Which one is actually active is
+ * This is the {@code centralized} assignment strategy. The alternative,
+ * {@code auction} ({@link AuctionCoordinatorService}), only decides
+ * differently *which* drone gets a mission - both hand it off the same
+ * way via {@link MissionAssigner}. Which one is actually active gets
  * decided by {@link MissionAssignmentModeHolder}, checked fresh on every
- * tick rather than fixed for the app's lifetime - this bean and
- * {@code AuctionCoordinatorService} both always exist, they just no-op on
+ * tick rather than fixed for the app's lifetime. This bean and {@code
+ * AuctionCoordinatorService} both always exist; they just no-op on
  * whichever tick isn't theirs.
  */
 @Service
@@ -85,19 +85,21 @@ public class MissionAssignmentService {
         pending.sort(Comparator.comparing(Mission::getPriority).reversed());
 
         for (Mission mission : pending) {
-            // scheduledAssignment() only checks the mode once, before this
-            // whole pass starts - a switch to AUCTION mid-pass (this loop
-            // runs a real query per mission, not instant) would otherwise
-            // still let this tick hand off a mission the auction side
-            // should own instead. Re-checked right before the mutation
-            // itself, not just once up front.
+            // scheduledAssignment() only checks the mode once, before
+            // this whole pass starts. This loop runs a real query per
+            // mission rather than finishing instantly, so a switch to
+            // AUCTION mid-pass could otherwise still let this tick hand
+            // off a mission the auction side should own instead. Checking
+            // again right here, immediately before the mutation, closes
+            // that window.
             if (modeHolder.get() != MissionAssignmentModeHolder.Mode.CENTRALIZED) {
                 return;
             }
-            // Queried fresh per mission (not a single snapshot up front) so
-            // a drone claimed by an earlier mission in this same pass is
-            // already excluded - MissionAssigner.assign() commits
-            // ON_MISSION synchronously before moving to the next mission.
+            // Queried fresh per mission rather than as one snapshot up
+            // front, so a drone claimed by an earlier mission in this
+            // same pass is already excluded - MissionAssigner.assign()
+            // commits ON_MISSION synchronously before moving to the next
+            // mission.
             droneRepository.findBestForMission(MIN_BATTERY_PERCENT, missionStart(mission))
                     .ifPresent(drone -> missionAssigner.assign(mission, drone));
         }

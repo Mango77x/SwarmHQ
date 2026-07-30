@@ -16,13 +16,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Consumes drone bids for {@code AuctionCoordinatorService} (Sprint 14).
- * Always subscribed now, not gated to auction mode only - a bid arriving
- * while centralized mode is active just means
- * {@code AuctionCoordinatorService.recordBid} finds no open auction for
- * it and drops it, the same as a bid arriving after its own auction
- * already closed. Same thin-listener/service-layer split as every other
- * MQTT listener in this project.
+ * Consumes drone bids for {@code AuctionCoordinatorService}. Stays
+ * subscribed all the time rather than only while auction mode is active -
+ * a bid that shows up during centralized mode just finds no open auction
+ * in {@code AuctionCoordinatorService.recordBid} and gets dropped, the
+ * same way a late bid on an already-closed auction would. Same
+ * thin-listener/service-layer split as the other MQTT listeners here.
  */
 @Component
 public class MissionBidListener {

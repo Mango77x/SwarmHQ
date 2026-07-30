@@ -8,19 +8,18 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Smooths noisy GPS telemetry per drone (Sprint 12) before it's
- * persisted/broadcast/geofence-checked, fusing each raw measurement with
- * a constant-velocity motion-model prediction ({@link KalmanFilter2D})
- * rather than trusting it verbatim - the same way a real navigation
- * system handles sensor noise. Called from
- * {@link DroneService#applyTelemetry}.
+ * Smooths noisy GPS telemetry per drone before it's persisted,
+ * broadcast, or geofence-checked. Fuses each raw measurement with a
+ * constant-velocity motion-model prediction ({@link KalmanFilter2D})
+ * instead of trusting it verbatim, the way a real navigation system
+ * handles sensor noise. Called from {@link DroneService#applyTelemetry}.
  *
- * Filter state lives in memory only, one {@link KalmanFilter2D} per
- * drone external id - a backend restart just means each filter
+ * Filter state only lives in memory, one {@link KalmanFilter2D} per
+ * drone external id. A backend restart just means each filter
  * re-initializes from the next reading and re-converges over the
- * following few updates, which is an acceptable simplification for a
- * local demo (and arguably realistic: a real navigation filter also
- * reinitializes on a cold restart).
+ * following few updates - an acceptable simplification for a local demo,
+ * and arguably realistic too, since a real navigation filter also
+ * reinitializes on a cold restart.
  */
 @Service
 public class KalmanFilterService {

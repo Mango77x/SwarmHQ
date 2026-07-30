@@ -10,9 +10,9 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * Lets the frontend read and switch the live mission-assignment strategy
- * (Sprint 16) - what used to be a fixed environment variable read once at
- * startup is now a runtime toggle, backed by
+ * Lets the frontend read and switch the live mission-assignment
+ * strategy. What used to be a fixed environment variable, read once at
+ * startup, is now a runtime toggle backed by
  * {@link MissionAssignmentModeHolder}.
  */
 @RestController

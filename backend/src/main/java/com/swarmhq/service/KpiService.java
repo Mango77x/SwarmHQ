@@ -11,12 +11,12 @@ import java.time.Duration;
 import java.time.Instant;
 
 /**
- * Dashboard aggregates (Sprint 9) - polled by the frontend
- * (frontend/src/api/kpis.ts) rather than pushed over STOMP like
- * DroneService/AlertService: these are aggregate counts a dashboard
- * refreshes every few seconds, not per-event state a marker/alert list
- * needs instantly, so broadcasting a full recompute on every single
- * drone/event write isn't worth the complexity here.
+ * Dashboard aggregates, polled by the frontend (frontend/src/api/kpis.ts)
+ * rather than pushed over STOMP like DroneService/AlertService. These
+ * are counts a dashboard just needs refreshed every few seconds - a
+ * marker or alert list needing per-event state instantly is a different
+ * problem, so broadcasting a full recompute on every drone/event write
+ * isn't worth the extra complexity here.
  */
 @Service
 public class KpiService {

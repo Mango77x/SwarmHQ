@@ -16,14 +16,14 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 /**
- * Raises {@link Event}s off telemetry transitions - low battery, status
- * changes, entering/leaving a {@link RiskZone} (Sprint 8). Called from
+ * Raises {@link Event}s off telemetry transitions: low battery, status
+ * changes, entering/leaving a {@link RiskZone}. Called from
  * {@link DroneService#applyTelemetry} with the drone's state just before
- * that call overwrote it, since every check here is transition-based (fire
- * once when crossing a threshold/boundary, not on every single telemetry
- * tick while already past it) - a brand-new drone (no prior state) only
- * gets evaluated for geofencing, since "changed" doesn't mean anything yet
- * for its first-ever reading.
+ * that call overwrote it. Every check here is transition-based - it
+ * fires once when crossing a threshold or boundary rather than on every
+ * telemetry tick while already past it. A brand-new drone with no prior
+ * state only gets evaluated for geofencing, since "changed" has no
+ * meaning yet on a first-ever reading.
  */
 @Service
 public class AlertService {
@@ -54,14 +54,14 @@ public class AlertService {
             raise(drone, EventType.STATUS_CHANGE, previousStatus + " -> " + drone.getStatus());
         }
 
-        // Network resilience (Sprint 13): dedicated events alongside the
-        // generic STATUS_CHANGE above (same "more than one event can fire
-        // off a single transition" precedent as LOW_BATTERY, which often
-        // coincides with a PATROLLING -> RETURNING STATUS_CHANGE already).
-        // SIGNAL_LOST is raised by SignalMonitorService's watchdog, never
-        // by telemetry; SIGNAL_RECOVERED needs no watchdog counterpart -
-        // it falls out for free the moment fresh telemetry reaches here
-        // with previousStatus already SIGNAL_LOST.
+        // Dedicated events alongside the generic STATUS_CHANGE above -
+        // LOW_BATTERY already sets the precedent that more than one event
+        // can fire off a single transition, since it often coincides with
+        // a PATROLLING -> RETURNING STATUS_CHANGE anyway. SignalMonitorService's
+        // watchdog raises SIGNAL_LOST, never telemetry itself.
+        // SIGNAL_RECOVERED doesn't need a watchdog counterpart at all: it
+        // just falls out once fresh telemetry reaches here with
+        // previousStatus already SIGNAL_LOST.
         if (previousStatus != null && previousStatus != DroneStatus.SIGNAL_LOST && drone.getStatus() == DroneStatus.SIGNAL_LOST) {
             raise(drone, EventType.SIGNAL_LOST, "Lost signal - last known position retained");
         }
@@ -96,11 +96,11 @@ public class AlertService {
     }
 
     /**
-     * Same persist-and-broadcast path as the transition checks above, for
-     * callers outside this class that raise an event tied to a
-     * {@link Mission} - {@code MissionStatusListener} (Sprint 10), on
-     * mission completion/failure. {@code mission.getAssignedDrone()} is
-     * always non-null here: a mission only reaches COMPLETED/FAILED after
+     * Same persist-and-broadcast path as the transition checks above,
+     * exposed for callers outside this class that raise an event tied to
+     * a {@link Mission} - {@code MissionStatusListener} does, on mission
+     * completion/failure. {@code mission.getAssignedDrone()} is always
+     * non-null here, since a mission only reaches COMPLETED/FAILED after
      * MissionAssignmentService has already assigned it a drone.
      */
     public void raiseMissionEvent(Mission mission, EventType type, String detail) {

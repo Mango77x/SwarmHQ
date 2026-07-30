@@ -26,13 +26,13 @@ import java.util.UUID;
 
 /**
  * Wires a single MQTT client to the broker so the application can prove
- * connectivity at startup. Subscribing to telemetry topics and persisting
- * messages is the MQTT listener's job (Sprint 4), not this skeleton's.
+ * connectivity at startup. The listener classes handle subscribing to
+ * telemetry topics and actually persisting anything.
  *
- * TLS + per-client authentication (Sprint 11): mosquitto's self-signed dev
- * CA (infra/mosquitto/setup/generate.sh) isn't in the JVM's default trust
- * store, so a one-off SSLContext trusting just that CA is built here
- * instead of requiring a full Java keystore file to be provisioned.
+ * TLS + per-client auth: mosquitto's self-signed dev CA
+ * (infra/mosquitto/setup/generate.sh) isn't in the JVM's default trust
+ * store, so instead of provisioning a full Java keystore file, this just
+ * builds a one-off SSLContext that trusts that one CA.
  */
 @Configuration
 @EnableConfigurationProperties(MqttProperties.class)

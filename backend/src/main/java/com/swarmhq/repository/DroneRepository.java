@@ -17,19 +17,19 @@ public interface DroneRepository extends JpaRepository<Drone, Long> {
 
     long countByBatteryPercentLessThanEqual(int threshold);
 
-    // SignalMonitorService's watchdog (Sprint 13): every drone whose
-    // telemetry has gone quiet for longer than the timeout, excluding ones
-    // already marked SIGNAL_LOST (nothing to re-detect there until they
-    // recover, which happens for free the next time real telemetry arrives).
+    // Feeds SignalMonitorService's watchdog: every drone whose telemetry
+    // has gone quiet longer than the timeout, excluding ones already
+    // marked SIGNAL_LOST (nothing to re-detect there - they clear on
+    // their own once real telemetry arrives again).
     List<Drone> findByStatusNotAndLastUpdateAtBefore(DroneStatus status, Instant threshold);
 
     // MissionAssignmentService's greedy pick: nearest, fullest-battery
-    // eligible drone. ::geography casts give real meters out of
-    // ST_Distance instead of raw SRID-4326 degrees - the same "real
-    // PostGIS query, not hand-rolled math" theme as RiskZoneRepository.
-    // CAST(:missionStart AS geography), not :missionStart::geography -
-    // Spring Data's named-parameter parser swallows a `::` cast that
-    // immediately follows a `:param` token as part of the parameter name.
+    // eligible drone. The ::geography casts get real meters out of
+    // ST_Distance instead of raw SRID-4326 degrees, same idea as
+    // RiskZoneRepository's own PostGIS queries. Written as
+    // CAST(:missionStart AS geography) rather than :missionStart::geography
+    // because Spring Data's named-parameter parser swallows a `::` cast
+    // written right after a `:param` token as part of the parameter name.
     @Query(value = """
             SELECT * FROM drones
             WHERE status = 'PATROLLING' AND battery_percent >= :minBatteryPercent AND position IS NOT NULL

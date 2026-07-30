@@ -91,9 +91,9 @@ class MissionStatusListenerTests {
 
     @Test
     void marksMissionFailedAndRaisesMissionFailedEvent() throws Exception {
-        // A distinct identity from the COMPLETED test above, not a shared
-        // one - avoids any possibility of interference between the two
-        // (e.g. a QoS1 redelivery window overlapping) regardless of cause.
+        // Uses its own distinct identity rather than sharing the COMPLETED
+        // test's above, to rule out any interference between the two
+        // (e.g. an overlapping QoS1 redelivery window) regardless of cause.
         givenAnActiveMission("test-drone-3");
         publishStatus(Map.of("missionId", mission.getId(), "status", "FAILED", "reason", "low_battery"));
 
@@ -112,8 +112,8 @@ class MissionStatusListenerTests {
     private void givenAnActiveMission(String externalId) {
         // Provisioned test-only MQTT identity (infra/mosquitto/setup/generate.sh),
         // distinct from DroneTelemetryListenerTests's "test-drone-1" in case
-        // both ever run concurrently - and not "drone-1" etc., which a real
-        // simulator run might be using.
+        // both ever run concurrently. Using "drone-1" etc. here instead
+        // would risk colliding with a real simulator run.
         drone = droneRepository.saveAndFlush(new Drone(externalId, "quadcopter", DroneStatus.ON_MISSION, 80));
 
         Mission newMission = new Mission(
@@ -128,10 +128,11 @@ class MissionStatusListenerTests {
     }
 
     private void publishStatus(Map<String, Object> payload) throws Exception {
-        // clientId unique per drone identity, not a shared literal string -
-        // cleanStart(true) already discards a same-clientId session's
-        // state on reconnect, but a distinct clientId per test removes
-        // any doubt about session continuity mattering here at all.
+        // clientId is built per drone identity rather than a shared
+        // literal string. cleanStart(true) already discards a
+        // same-clientId session's state on reconnect, but a distinct
+        // clientId per test removes any doubt about session continuity
+        // mattering here at all.
         publisher = TestMqttPublishers.connect("mission-status-test-publisher-" + drone.getExternalId(), drone.getExternalId());
 
         MqttMessage message = new MqttMessage(objectMapper.writeValueAsBytes(payload));

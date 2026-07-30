@@ -23,33 +23,33 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Drives AuctionCoordinatorService's open/bid/close cycle as three
- * deterministic steps rather than through its real-clock {@code @Scheduled}
- * tick - {@code auction-window-seconds=0} means any elapsed time (even
- * ~0ms between two direct calls in the same test) counts as "expired", so
- * closing an auction doesn't need to wait on the wall clock. See
- * MissionBidListenerTests for the complementary test that goes through
- * the real MQTT path instead. Same DB hazards/mitigations as
- * MissionAssignmentServiceTests (far-from-Madrid coordinates, sidelining
- * pre-existing PENDING missions/PATROLLING drones, {@code @Transactional}
- * rollback) - see that class for the full reasoning.
+ * deterministic steps instead of going through its real-clock {@code
+ * @Scheduled} tick. With {@code auction-window-seconds=0}, any elapsed
+ * time counts as "expired" (even the ~0ms between two direct calls in
+ * the same test), so closing an auction never has to wait on the wall
+ * clock. MissionBidListenerTests covers the complementary path that goes
+ * through real MQTT instead. Shares the same DB hazards and mitigations
+ * as MissionAssignmentServiceTests - far-from-Madrid coordinates,
+ * sidelining pre-existing PENDING missions/PATROLLING drones, {@code
+ * @Transactional} rollback - see that class for the full reasoning.
  *
- * Doesn't need {@code mission-assignment.mode=auction} (Sprint 16 made it
- * a runtime-mutable {@code MissionAssignmentModeHolder}, not a startup
- * property) - every method under test here is called directly, never
- * through the real {@code @Scheduled tick()} that actually checks the
- * mode, so the mode holder is irrelevant to this class either way.
+ * No need for {@code mission-assignment.mode=auction} here: the mode
+ * holder is a runtime-mutable {@code MissionAssignmentModeHolder} rather
+ * than a startup property, and every method under test is called
+ * directly rather than through the real {@code @Scheduled tick()} that
+ * actually checks it, so the mode holder plays no role in this class.
  *
- * {@code @DirtiesContext}: {@code auction-window-seconds=0} is still a
- * property set no other test class shares, so Spring still caches it as
- * a second, simultaneously-alive ApplicationContext with its own live
- * MQTT connection. Without this, that connection outlives this test class
- * for the rest of the suite, and its (unconditional) MissionStatusListener
- * bean double-processes any drones/+/mission-status message a *later*
- * test class publishes, producing a real, hard-to-place "expected 1 event
+ * {@code @DirtiesContext} is needed because {@code auction-window-seconds=0}
+ * is still a property set no other test class shares, so Spring caches
+ * it as a second, simultaneously-alive ApplicationContext with its own
+ * live MQTT connection. Skip it and that connection outlives this test
+ * class for the rest of the suite; its unconditional MissionStatusListener
+ * bean then double-processes any drones/+/mission-status message a later
+ * test class publishes, which shows up as a confusing "expected 1 event
  * but was 2" failure in a completely unrelated test. Found by running
- * MissionStatusListenerTests in isolation (passed) vs. in the full suite
- * (failed) - the tell that this was cross-test-context pollution, not a
- * bug in that test itself.
+ * MissionStatusListenerTests alone (passed) versus in the full suite
+ * (failed) - that gap is what pointed at cross-test-context pollution
+ * rather than a bug in that test.
  */
 @SpringBootTest
 @TestPropertySource(properties = {

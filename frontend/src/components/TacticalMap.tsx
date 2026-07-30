@@ -22,8 +22,8 @@ const MADRID_CENTER: [number, number] = [-3.7038, 40.4168];
 const RISK_ZONES_SOURCE_ID = "risk-zones";
 const MISSIONS_SOURCE_ID = "missions";
 const PENDING_MISSION_SOURCE_ID = "pending-mission";
-// Same cadence as KpiBar - aggregate/overlay data, not something that
-// needs push-on-every-write freshness the way drone positions do.
+// Same cadence as KpiBar - this is overlay data that doesn't need
+// push-on-every-write freshness the way drone positions do.
 const MISSIONS_POLL_INTERVAL_MS = 5000;
 
 const STATUS_COLOR: Record<Drone["status"], string> = {
@@ -33,8 +33,9 @@ const STATUS_COLOR: Record<Drone["status"], string> = {
   SIGNAL_LOST: "#ef4444",
 };
 
-// Only PENDING/ACTIVE render - a live tactical map showing current orders,
-// not a full mission history (that's a future mission-list panel's job).
+// Only PENDING/ACTIVE render here - this is a live tactical map showing
+// current orders. A full mission history would be a future mission-list
+// panel's job.
 const MISSION_STATUS_COLOR: Record<"PENDING" | "ACTIVE", string> = {
   PENDING: "#f59e0b",
   ACTIVE: "#3b82f6",

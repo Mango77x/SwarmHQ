@@ -72,9 +72,9 @@ class KalmanFilter2DTests {
 
         double distanceDegrees = Math.hypot(last.x - trueLon, last.y - trueLat);
         // A converged multi-measurement estimate should land much closer
-        // to the truth than a single raw noisy reading typically would -
-        // proof the filter is averaging the noise down, not just
-        // repeating the latest measurement back.
+        // to the truth than a single raw noisy reading typically would,
+        // which is the proof the filter is actually averaging the noise
+        // down rather than just repeating the latest measurement back.
         assertTrue(distanceDegrees < NOISE_STD_DEGREES,
                 "expected convergence within " + NOISE_STD_DEGREES + " deg of true position, was " + distanceDegrees);
     }
