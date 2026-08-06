@@ -847,12 +847,24 @@ portfolio-complete as of item 1.
    map, clicking a rendered mission line opens `MissionActionPanel` with a
    cancel/recall button when applicable. Closes the gap item 1 left open:
    an order can now be revoked, not just given.
-3. **Manual assignment override.** A "force-assign this drone to this
-   mission" action that bypasses both the centralized engine and the
-   auction, the most literally "command and control" of the four but
-   also the most work: it needs a third assignment path distinct from
-   MissionAssignmentService and AuctionCoordinatorService, not a
-   variant of either.
+3. ✅ **Manual assignment override.** Done -
+   `POST /api/missions/{id}/assign` (`MissionController`/
+   `MissionService.assignManually`, body: `{"droneExternalId": "drone-2"}`).
+   Only a `PENDING` mission is eligible (an `ACTIVE` one already has a
+   drone) and only a `PATROLLING` drone can be named - not because it has
+   to be the *best* choice, that heuristic is exactly what this bypasses,
+   but because a busy, returning, or unreachable drone genuinely can't
+   take a new order. The actual hand-off reuses `MissionAssigner` (the same
+   shared component `MissionAssignmentService` and `AuctionCoordinatorService`
+   already assign through) completely unchanged, rather than a third copy
+   of the same flip-`ON_MISSION`/publish/raise-`STATUS_CHANGE` logic - a
+   drone never has to know or care whether an operator, the centralized
+   engine, or an auction decided it should fly a given mission. On the
+   map, `MissionActionPanel` shows a drone picker for a selected `PENDING`
+   mission alongside the existing cancel button, populated from
+   `GET /api/drones` filtered to `PATROLLING` at the moment the panel
+   opens (not kept polled continuously - the list only needs to be current
+   when an operator is actually choosing from it).
 4. **Manage restricted zones from the map.** Zones exist and already
    drive alerts (Sprint 8), but are only ever seeded via migration.
    Letting an operator declare a new no-fly zone at runtime fits the

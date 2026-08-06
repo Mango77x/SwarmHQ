@@ -4,7 +4,7 @@ import { Map as MapLibreMap, Marker, NavigationControl, setWorkerUrl } from "map
 import "maplibre-gl/dist/maplibre-gl.css";
 import { fetchDrones, type Drone } from "../api/drones";
 import { connectLiveDrones } from "../api/liveDrones";
-import { cancelMission, createMission, fetchMissions, type Mission, type MissionPriority } from "../api/missions";
+import { assignMission, cancelMission, createMission, fetchMissions, type Mission, type MissionPriority } from "../api/missions";
 import { fetchZones } from "../api/zones";
 import AlertsPanel from "./AlertsPanel";
 import MissionActionPanel from "./MissionActionPanel";
@@ -101,6 +101,8 @@ export default function TacticalMap() {
   const [selectedMission, setSelectedMission] = useState<Mission | null>(null);
   const selectedMissionIdRef = useRef<number | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [availableDrones, setAvailableDrones] = useState<string[]>([]);
+  const [assigning, setAssigning] = useState(false);
   selectedMissionIdRef.current = selectedMission?.id ?? null;
 
   function refreshMissions() {
@@ -268,6 +270,45 @@ export default function TacticalMap() {
     setPendingPoints([]);
   }
 
+  // Manual assignment only applies to a PENDING mission, and the drone
+  // list needs to be current at the moment the operator is picking one -
+  // fetched fresh right when the panel opens on one, rather than kept
+  // polled continuously alongside it.
+  useEffect(() => {
+    if (selectedMission?.status !== "PENDING") {
+      setAvailableDrones([]);
+      return;
+    }
+    let cancelled = false;
+    fetchDrones()
+      .then((drones) => {
+        if (!cancelled) {
+          setAvailableDrones(drones.filter((d) => d.status === "PATROLLING").map((d) => d.externalId));
+        }
+      })
+      .catch(() => {
+        // Non-critical - the panel just shows "no drone available".
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMission?.id, selectedMission?.status]);
+
+  function assignSelectedMission(droneExternalId: string) {
+    if (!selectedMission) return;
+    setAssigning(true);
+    assignMission(selectedMission.id, droneExternalId)
+      .then((updated) => {
+        setSelectedMission(updated);
+        setError(null);
+        refreshMissions();
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to assign mission");
+      })
+      .finally(() => setAssigning(false));
+  }
+
   function cancelSelectedMission() {
     if (!selectedMission) return;
     setCancelling(true);
@@ -353,6 +394,9 @@ export default function TacticalMap() {
           cancelling={cancelling}
           onCancel={cancelSelectedMission}
           onClose={() => setSelectedMission(null)}
+          availableDrones={availableDrones}
+          assigning={assigning}
+          onAssign={assignSelectedMission}
         />
       )}
       <div
