@@ -133,11 +133,15 @@ message for the same drone with `lat`/`lon` inside `V3__add_risk_zones.sql`'s
 
 `V4__seed_demo_missions.sql` already seeds two demo missions near the
 simulator's patrol area, so a normal run assigns/flies/completes them
-without any manual step. To create another one:
+without any manual step. To create another one (needs an `OPERATOR`
+bearer token as of the "Hardening & parity layer" - see "Signing in
+(Keycloak)" below; easiest in practice is the frontend's own dispatch tool
+on the map, which already attaches it):
 
 ```bash
 curl -X POST http://localhost:8080/api/missions \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{"route":[[-3.7038,40.4168],[-3.6978,40.4228]],"priority":"HIGH"}'
 ```
 
@@ -146,7 +150,16 @@ It starts `PENDING`; `MissionAssignmentService`'s scheduled pass (every
 battery above the safety margin) is close enough. Check
 `GET /api/missions` for its status, or the map's "RECENT ALERTS" panel
 for the `STATUS_CHANGE`/`WAYPOINT_REACHED` events the assignment and
-completion raise.
+completion raise. A route crossing a declared `RiskZone` (see "Geofence
+as an active constraint" in PROJECT_OVERVIEW.md) is rejected with `409`
+instead of being created - try the same request against a route through
+the seeded "Sector 1 Perimeter Risk Zone" (lon `[-3.7048, -3.7028]`, lat
+`[40.4190, 40.4210]`) to see it.
+
+`GET /api/missions/{id}/history` (public, no token needed) returns that
+mission's Hibernate Envers revision history - empty for anything created
+before this feature shipped, Envers only tracks changes made after it's
+enabled, never retroactively.
 
 ## Running the simulator
 

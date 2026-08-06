@@ -1,5 +1,6 @@
 package com.swarmhq.repository;
 
+import com.swarmhq.model.Drone;
 import com.swarmhq.model.Mission;
 import com.swarmhq.model.MissionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,6 +15,17 @@ import java.util.Optional;
 public interface MissionRepository extends JpaRepository<Mission, Long> {
 
     long countByStatus(MissionStatus status);
+
+    // AlertService's geofence auto-recall: does this drone (which just
+    // entered a RiskZone) have a mission to recall it from at all? A
+    // PATROLLING drone has none - only the passive ENTERED_RISK_ZONE alert
+    // applies to it. JOIN FETCH (not left) for the same reason as
+    // findByIdWithDrone: an ACTIVE mission always has an assignedDrone, and
+    // MissionCancelPublisher needs it outside this method's own
+    // transaction - without eagerly fetching it here, that access would
+    // hit a closed-session LazyInitializationException instead.
+    @Query("SELECT m FROM Mission m JOIN FETCH m.assignedDrone WHERE m.assignedDrone = :drone AND m.status = :status")
+    Optional<Mission> findByAssignedDroneAndStatus(@Param("drone") Drone drone, @Param("status") MissionStatus status);
 
     // LEFT (not inner) JOIN FETCH: PENDING missions have no assignedDrone
     // yet. Avoids a lazy-load per row from MissionResponse.from() in the

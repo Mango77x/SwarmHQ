@@ -78,7 +78,73 @@ class MissionControllerTests {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.priority").value("LOW"))
-                .andExpect(jsonPath("$.route.length()").value(2));
+                .andExpect(jsonPath("$.route.length()").value(2))
+                // JpaAuditingConfig's AuditorAware reads the operator's
+                // identity off their JWT - "user" is jwt()'s own default
+                // subject claim when a test doesn't override it.
+                .andExpect(jsonPath("$.createdBy").value("user"));
+    }
+
+    @Test
+    void creatingAMissionThatCrossesARiskZoneIsRejected() throws Exception {
+        // Inside the seeded "Sector 1 Perimeter Risk Zone" (V3__add_risk_zones.sql):
+        // lon [-3.7048, -3.7028], lat [40.4190, 40.4210]. A straight line
+        // at lon -3.7038 sweeping through that lat range cuts right
+        // through it.
+        CreateMissionRequest request = new CreateMissionRequest(
+                java.util.List.of(new double[] {-3.7038, 40.4180}, new double[] {-3.7038, 40.4220}),
+                MissionPriority.HIGH);
+
+        mockMvc.perform(post("/api/missions")
+                        .with(operator())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(request)))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+    void historyShowsARevisionPerLifecycleChange() throws Exception {
+        // Suspends this class's usual @Transactional-per-test-method
+        // wrapper (every other test here relies on it for free rollback
+        // cleanup) because Envers writes its revision rows via a
+        // beforeTransactionCompletion hook that only fires on a genuine
+        // commit - under Spring's test-managed rollback-only transaction,
+        // that hook never runs at all, so missions_aud would still be
+        // empty even after a successful flush. Each call below now really
+        // commits, same as production traffic, so the later history read
+        // actually sees what the earlier writes produced. Manual cleanup
+        // at the end instead of automatic rollback; the _aud/revinfo rows
+        // themselves are intentionally left alone - audit history, like
+        // Event, is never deleted once written.
+        Mission mission = missionRepository.saveAndFlush(pendingMission());
+        try {
+            // Deliberately a plain save(), not updateStatusIfPending - a
+            // bulk JPQL UPDATE bypasses Hibernate's normal entity
+            // lifecycle entirely, so Envers (hooked into that lifecycle)
+            // never sees it as a change worth a revision. Every real
+            // status transition in this app goes through a regular save()
+            // (MissionStatusListener, MissionAssigner), so this is
+            // representative, not a shortcut.
+            mission.setStatus(MissionStatus.CANCELLED);
+            missionRepository.saveAndFlush(mission);
+
+            mockMvc.perform(get("/api/missions/{id}/history", mission.getId()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(2))
+                    .andExpect(jsonPath("$[0].revisionType").value("ADD"))
+                    .andExpect(jsonPath("$[0].status").value("PENDING"))
+                    .andExpect(jsonPath("$[1].revisionType").value("MOD"))
+                    .andExpect(jsonPath("$[1].status").value("CANCELLED"));
+        } finally {
+            missionRepository.deleteById(mission.getId());
+        }
+    }
+
+    @Test
+    void historyForAnUnknownMissionReturnsNotFound() throws Exception {
+        mockMvc.perform(get("/api/missions/{id}/history", 9_999_999L))
+                .andExpect(status().isNotFound());
     }
 
     @Test

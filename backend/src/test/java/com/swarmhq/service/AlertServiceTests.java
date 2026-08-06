@@ -3,11 +3,18 @@ package com.swarmhq.service;
 import com.swarmhq.model.Drone;
 import com.swarmhq.model.Event;
 import com.swarmhq.model.EventType;
+import com.swarmhq.model.Mission;
+import com.swarmhq.model.MissionPriority;
+import com.swarmhq.model.MissionStatus;
 import com.swarmhq.mqtt.TelemetryPayload;
 import com.swarmhq.repository.DroneRepository;
 import com.swarmhq.repository.EventRepository;
+import com.swarmhq.repository.MissionRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.PrecisionModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestPropertySource;
@@ -62,12 +69,18 @@ class AlertServiceTests {
     @Autowired
     private EventRepository eventRepository;
 
+    @Autowired
+    private MissionRepository missionRepository;
+
     @AfterEach
     void cleanup() {
         droneRepository.findByExternalId(EXTERNAL_ID).ifPresent(drone -> {
             eventRepository.findAll().stream()
                     .filter(e -> e.getDrone().getId().equals(drone.getId()))
                     .forEach(eventRepository::delete);
+            missionRepository.findAllWithDrone().stream()
+                    .filter(m -> m.getAssignedDrone() != null && m.getAssignedDrone().getId().equals(drone.getId()))
+                    .forEach(missionRepository::delete);
             droneRepository.delete(drone);
         });
     }
@@ -130,6 +143,42 @@ class AlertServiceTests {
 
         assertEquals(1, eventsOfType(EventType.ENTERED_RISK_ZONE).size());
         assertEquals(1, eventsOfType(EventType.EXITED_RISK_ZONE).size());
+    }
+
+    @Test
+    void autoRecallsADroneWithAnActiveMissionWhenItEntersARiskZone() {
+        // Geofence as an active constraint, not just a passive alert (the
+        // hardening/parity layer's item 2): entering a RiskZone while
+        // flying an ACTIVE mission should trigger the same MQTT cancel/RTB
+        // command an operator's own POST /api/missions/{id}/cancel
+        // publishes (MissionCancelPublisher), reused via AlertService.
+        telemetry(80, "ON_MISSION", OUTSIDE_ZONE_LAT, OUTSIDE_ZONE_LON);
+        Drone drone = droneRepository.findByExternalId(EXTERNAL_ID).orElseThrow();
+        Mission mission = missionRepository.saveAndFlush(activeMissionFor(drone));
+
+        for (int i = 0; i < 5; i++) {
+            telemetry(80, "ON_MISSION", IN_ZONE_LAT, IN_ZONE_LON);
+        }
+
+        assertEquals(1, eventsOfType(EventType.ENTERED_RISK_ZONE).size());
+        // Auto-recall only requests the cancel over MQTT - the mission
+        // stays ACTIVE until the drone's own mission-status report comes
+        // back through MissionStatusListener, same eventual-consistency
+        // pattern an operator-triggered cancel already uses (see
+        // MissionControllerTests.cancellingAnActiveMissionPublishesTheCommandAndLeavesItActiveUntilConfirmed).
+        assertEquals(MissionStatus.ACTIVE, missionRepository.findById(mission.getId()).orElseThrow().getStatus());
+    }
+
+    private Mission activeMissionFor(Drone drone) {
+        Mission mission = new Mission(
+                new GeometryFactory(new PrecisionModel(), 4326).createLineString(new Coordinate[] {
+                        new Coordinate(OUTSIDE_ZONE_LON, OUTSIDE_ZONE_LAT),
+                        new Coordinate(IN_ZONE_LON, IN_ZONE_LAT)
+                }),
+                MissionPriority.MEDIUM);
+        mission.setAssignedDrone(drone);
+        mission.setStatus(MissionStatus.ACTIVE);
+        return mission;
     }
 
     private void telemetry(int batteryPercent, String status, double lat, double lon) {

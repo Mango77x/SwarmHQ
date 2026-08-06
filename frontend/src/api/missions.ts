@@ -11,12 +11,34 @@ export interface Mission {
   status: MissionStatus;
   priority: MissionPriority;
   createdAt: string;
+  createdBy: string | null;
+  lastModifiedBy: string | null;
+  lastModifiedAt: string | null;
+}
+
+/** One Hibernate Envers revision of a mission - the hardening layer's
+ * audit trail (backend/.../MissionHistoryService), not a live row. */
+export interface MissionRevision {
+  revision: number;
+  occurredAt: string;
+  revisionType: "ADD" | "MOD" | "DEL";
+  status: MissionStatus | null;
+  priority: MissionPriority | null;
+  assignedDroneExternalId: string | null;
 }
 
 export async function fetchMissions(): Promise<Mission[]> {
   const response = await apiFetch("/api/missions");
   if (!response.ok) {
     throw new Error(`GET /api/missions failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function fetchMissionHistory(id: number): Promise<MissionRevision[]> {
+  const response = await apiFetch(`/api/missions/${id}/history`);
+  if (!response.ok) {
+    throw new Error(`GET /api/missions/${id}/history failed: ${response.status}`);
   }
   return response.json();
 }

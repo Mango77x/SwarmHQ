@@ -51,6 +51,11 @@ system that has to track many independent moving things at once.
 - **Resilience by design**: signal loss, GPS noise, and Kalman-filtered
   position smoothing are all part of the simulation, not edge cases bolted
   on afterward
+- **Operational hardening**: Keycloak-backed login with operator/observer
+  roles, a restricted zone an operator can't accidentally route a mission
+  through in the first place (and that auto-recalls a drone that strays
+  into one mid-mission), and a full Hibernate Envers revision history
+  behind every mission's current state
 
 <details>
 <summary>Resumen en español 🇪🇸</summary>
