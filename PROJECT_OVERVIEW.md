@@ -113,9 +113,9 @@ schema owned by Flyway (`backend/src/main/resources/db/migration`):
   occurred-at timestamp. Same audit/movement-log pattern as MOLS.
 - **RiskZone** (Sprint 8): id, name, area (`geometry(Polygon,4326)`) - a
   geofenced danger area `AlertService` checks drone positions against.
-  Static for now, seeded by Flyway (`V3__add_risk_zones.sql`); no write
-  path exists yet since defining zones isn't a use case this project needs
-  today.
+  One seeded by Flyway (`V3__add_risk_zones.sql`); an operator can also
+  declare more at runtime via `POST /api/zones` (see "C2 command layer"
+  below).
 
 ## Alerting
 
@@ -611,10 +611,12 @@ Implemented as of Sprint 6:
 - `GET /api/events` (Sprint 8) - the 50 most recent alerts, newest first
   (`EventService.listRecent`). Returns `droneExternalId`, `type`,
   `detail`, `occurredAt` - same "no internal ids" convention.
-- `GET /api/zones` (Sprint 8) - every `RiskZone`'s exterior ring as
-  `[lon, lat]` pairs (`ZoneResponse` - the same coordinate order as a
-  GeoJSON `Polygon` ring, so the frontend drops it straight into one with
-  no reordering).
+- `GET /api/zones` (Sprint 8) / `POST /api/zones` (C2 command layer item 4)
+  - every `RiskZone`'s exterior ring as `[lon, lat]` pairs (`ZoneResponse` -
+  the same coordinate order as a GeoJSON `Polygon` ring, so the frontend
+  drops it straight into one with no reordering), or declare a new zone
+  (`CreateZoneRequest`: `name`, `ring` - doesn't need to already be closed,
+  `ZoneService.create` closes it).
 - `GET /api/kpis` (Sprint 9) - dashboard aggregates (`KpiService.summarize`,
   see "Dashboard KPIs" below). The one REST endpoint that's polled rather
   than pushed - see that section for why.
@@ -819,10 +821,9 @@ below still holds.
 piloting (a joystick/real-time flight control would be a different kind
 of project, more simulator than C2, and is explicitly out of scope).
 The live mode toggle (Sprint 16) is the first real order the app can
-issue; these are the next ones, in priority order. Items 2-4 aren't
-scheduled to a sprint, just written down so they don't get lost -
-development paused here deliberately, with the project considered
-portfolio-complete as of item 1.
+issue; these are the next ones, in priority order. Items 2-4 weren't
+scheduled to a sprint, just written down so they didn't get lost - all
+four are now done, closing out this layer.
 
 1. ✅ **Dispatch missions from the map.** Done - `POST /api/missions`
    already existed (Sprint 10 deliberately shipped it without a UI,
@@ -865,10 +866,22 @@ portfolio-complete as of item 1.
    `GET /api/drones` filtered to `PATROLLING` at the moment the panel
    opens (not kept polled continuously - the list only needs to be current
    when an operator is actually choosing from it).
-4. **Manage restricted zones from the map.** Zones exist and already
-   drive alerts (Sprint 8), but are only ever seeded via migration.
-   Letting an operator declare a new no-fly zone at runtime fits the
-   C2 theme, lowest priority of the four since nothing depends on it.
+4. ✅ **Manage restricted zones from the map.** Done - `POST /api/zones`
+   (`ZoneController`/`ZoneService.create`, body: `{"name": "...", "ring":
+   [[lon,lat], ...]}`). The ring doesn't need to already be closed - a
+   polygon needs its first point repeated last (JTS/PostGIS both reject an
+   open ring), and closing it here means the frontend just sends exactly
+   the points an operator clicked, no bookkeeping pushed onto the caller.
+   The one seeded at Flyway time (`V3__add_risk_zones.sql`) stays in
+   place; this is purely additive. `AlertService.evaluateRiskZones`
+   (Sprint 8) needed no changes at all - it already queries every
+   `RiskZone` row fresh via `ST_Contains` on each telemetry update, so a
+   zone declared at runtime drives `ENTERED_RISK_ZONE`/`EXITED_RISK_ZONE`
+   exactly like the seeded one, the moment a drone's path crosses it. On
+   the map, `ZoneDispatchControl` mirrors mission dispatch's click-capture
+   pattern but with an open-ended point count instead of a fixed 2 - click
+   corners, name the zone, declare it - with a live dashed/filled preview
+   of the polygon as it's being drawn.
 
 ## Continuous integration
 

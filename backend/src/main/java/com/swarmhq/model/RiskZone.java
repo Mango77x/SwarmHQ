@@ -11,8 +11,8 @@ import org.locationtech.jts.geom.Polygon;
 /**
  * A geofenced danger area. AlertService raises ENTERED_RISK_ZONE/
  * EXITED_RISK_ZONE events when a drone's position crosses one of these.
- * Static for now, seeded by Flyway - there's no CRUD API yet since
- * defining new zones at runtime isn't needed.
+ * The one seeded at Flyway time (V3__add_risk_zones.sql) stays in place,
+ * but an operator can also declare new ones at runtime (see ZoneService).
  */
 @Entity
 @Table(name = "risk_zones")
@@ -30,6 +30,11 @@ public class RiskZone {
 
     protected RiskZone() {
         // JPA
+    }
+
+    public RiskZone(String name, Polygon area) {
+        this.name = name;
+        this.area = area;
     }
 
     public Long getId() {
