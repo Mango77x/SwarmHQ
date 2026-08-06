@@ -52,6 +52,16 @@ public class ZoneService {
         if (!first.equals2D(coordinates.get(coordinates.size() - 1))) {
             coordinates.add(new Coordinate(first.x, first.y));
         }
+        // A valid ring needs >= 4 coordinates (3 distinct vertices, plus
+        // the first repeated last) - the only way to still be short of
+        // that here is a caller who already closed a 3-point ring
+        // themselves (2 distinct vertices), since the size check above
+        // already guarantees >= 3 points before any closing happens.
+        // JTS's own createPolygon would otherwise throw an unchecked
+        // IllegalArgumentException instead of the clean 400 this gives.
+        if (coordinates.size() < 4) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A zone needs at least 3 distinct points");
+        }
 
         RiskZone zone = new RiskZone(request.name(), GEOMETRY_FACTORY.createPolygon(coordinates.toArray(new Coordinate[0])));
         return ZoneResponse.from(riskZoneRepository.save(zone));

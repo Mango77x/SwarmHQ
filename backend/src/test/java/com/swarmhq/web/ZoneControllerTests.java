@@ -71,4 +71,22 @@ class ZoneControllerTests {
                         .content(objectMapper.writeValueAsBytes(request)))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void creatingAZoneFromAnAlreadyClosedThreePointRingIsRejected() throws Exception {
+        // 2 distinct vertices with the first repeated last - passes the
+        // >= 3 points check but isn't a real polygon once closing is
+        // skipped (it's already "closed"). ZoneService.create should
+        // catch this itself rather than let JTS throw an unchecked
+        // IllegalArgumentException that'd surface as a raw 500.
+        CreateZoneRequest request = new CreateZoneRequest("Degenerate", List.of(
+                new double[] {-3.72, 40.40},
+                new double[] {-3.71, 40.40},
+                new double[] {-3.72, 40.40}));
+
+        mockMvc.perform(post("/api/zones")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(request)))
+                .andExpect(status().isBadRequest());
+    }
 }
