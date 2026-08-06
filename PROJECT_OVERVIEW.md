@@ -958,22 +958,64 @@ not weapons integration.
    follow over the same upgraded connection) - every `connectLive*()`
    client (`liveDrones.ts`, `events.ts`, `mode.ts`) sends the access
    token as a STOMP `Authorization` header to match.
-2. **Geofence as an active constraint, not just an alert.** No new
-   technology - `ST_Contains` (already in `RiskZoneRepository`) is
-   already the right tool. Warn (or block) at mission creation if the
-   route crosses a `RiskZone`, and/or auto-trigger the existing cancel/
-   RTB path the moment a drone's own position enters one - reusing three
-   systems already built (zones, missions, cancel) rather than adding a
-   fourth.
-3. **Mission history / audit trail in the UI.** **Hibernate Envers**
-   (official Hibernate project, entity-revision versioning) on `Mission`
-   and `RiskZone`, the same tool the research turned up as the standard
-   answer for compliance/traceability in regulated and government
-   contexts, paired with Spring Data JPA's lightweight
-   `@CreatedBy`/`@LastModifiedBy` auditing for a quick who/when on every
-   entity. This one depends on item 1 - there's no meaningful "who" to
-   attribute a change to until an authenticated operator exists, so auth
-   is built first, not skipped to reach this sooner.
+2. ✅ **Geofence as an active constraint, not just an alert.** Done - no
+   new technology, `ST_Intersects`/`ST_Contains` (`RiskZoneRepository`)
+   were already the right tool, just not yet pointed at these two
+   moments:
+   - **Block at mission creation**: `MissionService.create` rejects
+     (`409`) a route whose `LineString` intersects any declared
+     `RiskZone` (`RiskZoneRepository.findIntersecting`, `ST_Intersects` -
+     not `findContaining`'s `ST_Contains`, since a route only needs to
+     touch or cross a zone, not be fully inside one). An operator can't
+     dispatch a mission through a no-fly area in the first place, instead
+     of only finding out via an `ENTERED_RISK_ZONE` alert after the fact.
+   - **Auto-recall in flight**: `AlertService.evaluateRiskZones` now
+     looks up the entering drone's ACTIVE mission
+     (`MissionRepository.findByAssignedDroneAndStatus`) and, if one
+     exists, publishes the exact same MQTT cancel/RTB command an
+     operator's own `POST /api/missions/{id}/cancel` does - extracted
+     into `MissionCancelPublisher` specifically so `AlertService` can
+     reuse it without depending on the whole of `MissionService` (which
+     would form a cycle back through `MissionAssigner` ->
+     `DroneService` -> `AlertService`). A `PATROLLING` drone with no
+     active mission has nothing to recall; the passive alert is all that
+     applies to it.
+3. ✅ **Mission history / audit trail in the UI.** Done - **Hibernate
+   Envers** (`@Audited` on `Mission`/`RiskZone`) tracks every field
+   change as a revision, paired with Spring Data JPA's
+   `@CreatedBy`/`@LastModifiedBy`/`@LastModifiedDate` auditing
+   (`JpaAuditingConfig`, reading `preferred_username` off the operator's
+   JWT - empty, not a fabricated "system" placeholder, for a
+   machine-driven change like a scheduled assignment or the geofence
+   auto-recall above) for a quick who/when on the live row.
+   `GET /api/missions/{id}/history` (`MissionHistoryService`, reading
+   Envers' `AuditReader`) exposes the full revision list; `RiskZone` is
+   audited the same way but has no equivalent endpoint yet (out of scope
+   for this pass - zones change far less often than missions).
+   `MissionActionPanel`'s new collapsible "History" section fetches it
+   lazily, only once an operator actually expands it.
+   - **Schema derived empirically, not hand-guessed**: Envers' exact
+     expected table shapes (`missions_aud`, `risk_zones_aud`, `revinfo`,
+     plus the new audit columns on the live tables) were generated once
+     by pointing the app at a throwaway database with
+     `ddl-auto=update`, then transcribed into
+     `V5__add_mission_riskzone_auditing.sql` and re-validated against a
+     second, clean throwaway database under this project's real
+     `ddl-auto=validate` setting - guessing Envers' DDL by hand under a
+     strict-validate policy is exactly the kind of thing worth verifying
+     rather than assuming.
+   - **A real Envers/Spring-test gotcha, documented on
+     `MissionControllerTests.historyShowsARevisionPerLifecycleChange`**:
+     Envers writes its revision rows via a `beforeTransactionCompletion`
+     hook that only fires on a genuine commit - Spring's usual
+     `@Transactional` test-rollback pattern (every *other* test in that
+     class relies on it for free cleanup) flushes changes to the
+     database but never actually commits, so the hook never runs and
+     `missions_aud` stays empty even after a successful `saveAndFlush()`.
+     That one test method suspends the class's shared transaction
+     (`Propagation.NOT_SUPPORTED`) so each call genuinely commits, same
+     as production traffic, with manual cleanup afterward instead of
+     automatic rollback.
 
 ## Continuous integration
 

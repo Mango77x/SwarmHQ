@@ -4,45 +4,41 @@ import com.swarmhq.model.Drone;
 import com.swarmhq.model.DroneStatus;
 import com.swarmhq.model.Mission;
 import com.swarmhq.model.MissionStatus;
+import com.swarmhq.model.RiskZone;
 import com.swarmhq.repository.DroneRepository;
 import com.swarmhq.repository.MissionRepository;
+import com.swarmhq.repository.RiskZoneRepository;
 import com.swarmhq.web.CreateMissionRequest;
 import com.swarmhq.web.MissionResponse;
-import org.eclipse.paho.mqttv5.client.MqttClient;
-import org.eclipse.paho.mqttv5.common.MqttException;
-import org.eclipse.paho.mqttv5.common.MqttMessage;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.PrecisionModel;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
-import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
-import java.util.Map;
 
 @Service
 public class MissionService {
 
-    private static final Logger log = LoggerFactory.getLogger(MissionService.class);
     private static final GeometryFactory GEOMETRY_FACTORY = new GeometryFactory(new PrecisionModel(), 4326);
 
     private final MissionRepository missionRepository;
     private final DroneRepository droneRepository;
+    private final RiskZoneRepository riskZoneRepository;
     private final MissionAssigner missionAssigner;
-    private final MqttClient mqttClient;
-    private final ObjectMapper objectMapper;
+    private final MissionCancelPublisher missionCancelPublisher;
 
     public MissionService(MissionRepository missionRepository, DroneRepository droneRepository,
-            MissionAssigner missionAssigner, MqttClient mqttClient, ObjectMapper objectMapper) {
+            RiskZoneRepository riskZoneRepository, MissionAssigner missionAssigner,
+            MissionCancelPublisher missionCancelPublisher) {
         this.missionRepository = missionRepository;
         this.droneRepository = droneRepository;
+        this.riskZoneRepository = riskZoneRepository;
         this.missionAssigner = missionAssigner;
-        this.mqttClient = mqttClient;
-        this.objectMapper = objectMapper;
+        this.missionCancelPublisher = missionCancelPublisher;
     }
 
     public List<MissionResponse> listAll() {
@@ -51,11 +47,31 @@ public class MissionService {
                 .toList();
     }
 
+    /**
+     * Geofence as an active constraint, not just a passive alert (the
+     * hardening/parity layer's item 2): a route that crosses a declared
+     * RiskZone is rejected outright rather than only logging
+     * ENTERED_RISK_ZONE once a drone is already flying it. {@code
+     * ST_Intersects} - not {@code ST_Contains}, RiskZoneRepository's own
+     * query for "is this point inside a zone" - since a route is a
+     * LineString that only needs to touch a zone's boundary or pass
+     * through it, not be fully contained by one.
+     */
     public MissionResponse create(CreateMissionRequest request) {
         Coordinate[] coordinates = request.route().stream()
                 .map(point -> new Coordinate(point[0], point[1]))
                 .toArray(Coordinate[]::new);
-        Mission mission = new Mission(GEOMETRY_FACTORY.createLineString(coordinates), request.priority());
+        LineString route = GEOMETRY_FACTORY.createLineString(coordinates);
+
+        List<String> crossedZones = riskZoneRepository.findIntersecting(route).stream()
+                .map(RiskZone::getName)
+                .toList();
+        if (!crossedZones.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Route crosses restricted zone(s): " + String.join(", ", crossedZones));
+        }
+
+        Mission mission = new Mission(route, request.priority());
         return MissionResponse.from(missionRepository.save(mission));
     }
 
@@ -91,7 +107,7 @@ public class MissionService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Mission " + id + " not found"));
         return switch (mission.getStatus()) {
             case ACTIVE -> {
-                publishCancel(mission);
+                missionCancelPublisher.publish(mission);
                 yield MissionResponse.from(mission);
             }
             case PENDING, COMPLETED, FAILED, CANCELLED -> throw new ResponseStatusException(HttpStatus.CONFLICT,
@@ -153,22 +169,5 @@ public class MissionService {
                     "Could not reach the drone to assign mission " + missionId);
         }
         return MissionResponse.from(mission);
-    }
-
-    private void publishCancel(Mission mission) {
-        String externalId = mission.getAssignedDrone().getExternalId();
-        Map<String, Object> payload = Map.of("missionId", mission.getId());
-        try {
-            MqttMessage message = new MqttMessage(objectMapper.writeValueAsBytes(payload));
-            message.setQos(1);
-            mqttClient.publish("drones/" + externalId + "/mission/cancel", message);
-            log.info("Requested cancel of mission {} ({} priority) on {}",
-                    mission.getId(), mission.getPriority(), externalId);
-        } catch (MqttException e) {
-            log.error("Failed to publish cancel for mission {} to drone {}: {}",
-                    mission.getId(), externalId, e.getMessage(), e);
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Could not reach the drone to cancel mission " + mission.getId());
-        }
     }
 }

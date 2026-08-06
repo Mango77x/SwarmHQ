@@ -1,5 +1,6 @@
 package com.swarmhq.web;
 
+import com.swarmhq.service.MissionHistoryService;
 import com.swarmhq.service.MissionService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,14 +18,21 @@ import java.util.List;
 public class MissionController {
 
     private final MissionService missionService;
+    private final MissionHistoryService missionHistoryService;
 
-    public MissionController(MissionService missionService) {
+    public MissionController(MissionService missionService, MissionHistoryService missionHistoryService) {
         this.missionService = missionService;
+        this.missionHistoryService = missionHistoryService;
     }
 
     @GetMapping
     public List<MissionResponse> listAll() {
         return missionService.listAll();
+    }
+
+    @GetMapping("/{id}/history")
+    public List<MissionRevisionResponse> history(@PathVariable Long id) {
+        return missionHistoryService.history(id);
     }
 
     @PostMapping

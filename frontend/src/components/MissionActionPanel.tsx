@@ -1,5 +1,6 @@
-import { useState } from "react";
-import type { Mission } from "../api/missions";
+import { useEffect, useState } from "react";
+import { fetchMissionHistory } from "../api/missions";
+import type { Mission, MissionRevision } from "../api/missions";
 
 interface Props {
   mission: Pick<Mission, "id" | "priority" | "status" | "assignedDroneExternalId">;
@@ -33,6 +34,32 @@ export default function MissionActionPanel({
   const canCancel = isOperator && (mission.status === "PENDING" || mission.status === "ACTIVE");
   const canManuallyAssign = isOperator && mission.status === "PENDING";
   const [pickedDrone, setPickedDrone] = useState("");
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<MissionRevision[] | null>(null);
+
+  // Fetched lazily (only once the operator actually asks to see it, not on
+  // every panel open) - the hardening layer's audit trail is a secondary,
+  // occasionally-needed view, not something worth a request on every click.
+  useEffect(() => {
+    if (!showHistory) {
+      return;
+    }
+    let cancelled = false;
+    fetchMissionHistory(mission.id)
+      .then((revisions) => {
+        if (!cancelled) {
+          setHistory(revisions);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setHistory([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showHistory, mission.id]);
 
   return (
     <div className="absolute bottom-16 left-4 w-64 rounded bg-slate-950/80 shadow-lg">
@@ -96,6 +123,29 @@ export default function MissionActionPanel({
           </button>
         </div>
       )}
+      <div className="border-t border-slate-800 px-3 py-2">
+        <button
+          type="button"
+          onClick={() => setShowHistory((current) => !current)}
+          className="text-xs font-semibold text-slate-400 hover:text-slate-200"
+        >
+          {showHistory ? "▾" : "▸"} History
+        </button>
+        {showHistory && (
+          <div className="mt-1.5 max-h-32 space-y-1 overflow-y-auto text-xs text-slate-400">
+            {history === null && <div>Loading…</div>}
+            {history !== null && history.length === 0 && <div>No revisions yet.</div>}
+            {history?.map((revision) => (
+              <div key={revision.revision} className="border-l-2 border-slate-700 pl-2">
+                <div className="text-slate-300">
+                  {revision.revisionType} · {revision.status ?? "—"}
+                </div>
+                <div>{new Date(revision.occurredAt).toLocaleString()}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

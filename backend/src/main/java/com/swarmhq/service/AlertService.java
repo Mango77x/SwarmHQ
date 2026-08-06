@@ -5,13 +5,18 @@ import com.swarmhq.model.DroneStatus;
 import com.swarmhq.model.Event;
 import com.swarmhq.model.EventType;
 import com.swarmhq.model.Mission;
+import com.swarmhq.model.MissionStatus;
 import com.swarmhq.model.RiskZone;
 import com.swarmhq.repository.EventRepository;
+import com.swarmhq.repository.MissionRepository;
 import com.swarmhq.repository.RiskZoneRepository;
 import com.swarmhq.web.EventResponse;
 import org.locationtech.jts.geom.Point;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -28,18 +33,25 @@ import java.util.List;
 @Service
 public class AlertService {
 
+    private static final Logger log = LoggerFactory.getLogger(AlertService.class);
+
     static final int LOW_BATTERY_THRESHOLD = 20;
 
     public static final String EVENT_UPDATES_TOPIC = "/topic/events";
 
     private final EventRepository eventRepository;
     private final RiskZoneRepository riskZoneRepository;
+    private final MissionRepository missionRepository;
+    private final MissionCancelPublisher missionCancelPublisher;
     private final SimpMessagingTemplate messagingTemplate;
 
     public AlertService(EventRepository eventRepository, RiskZoneRepository riskZoneRepository,
+            MissionRepository missionRepository, MissionCancelPublisher missionCancelPublisher,
             SimpMessagingTemplate messagingTemplate) {
         this.eventRepository = eventRepository;
         this.riskZoneRepository = riskZoneRepository;
+        this.missionRepository = missionRepository;
+        this.missionCancelPublisher = missionCancelPublisher;
         this.messagingTemplate = messagingTemplate;
     }
 
@@ -86,6 +98,7 @@ public class AlertService {
         for (RiskZone zone : nowIn) {
             if (previouslyIn.stream().noneMatch(z -> z.getId().equals(zone.getId()))) {
                 raise(drone, EventType.ENTERED_RISK_ZONE, "Entered '" + zone.getName() + "'");
+                autoRecallIfOnActiveMission(drone, zone);
             }
         }
         for (RiskZone zone : previouslyIn) {
@@ -93,6 +106,35 @@ public class AlertService {
                 raise(drone, EventType.EXITED_RISK_ZONE, "Left '" + zone.getName() + "'");
             }
         }
+    }
+
+    /**
+     * Geofence as an active constraint, not just a passive alert (the
+     * hardening/parity layer's item 2): the moment a drone flying an
+     * ACTIVE mission enters a RiskZone, that mission is auto-cancelled via
+     * the exact same MQTT command an operator's own
+     * {@code POST /api/missions/{id}/cancel} publishes
+     * ({@link MissionCancelPublisher}) - MissionStatusListener's existing
+     * eventual-consistency handling of the CANCELLED report doesn't need
+     * to know or care whether a human or this trigger requested it. A
+     * PATROLLING drone (no active mission) has nothing to recall from -
+     * the ENTERED_RISK_ZONE alert just raised is all that applies to it.
+     * Best-effort: this runs off telemetry processing, not an HTTP
+     * request, so a race where the mission already ended on its own
+     * between the lookup and the publish is logged and swallowed rather
+     * than surfaced to a caller that doesn't exist.
+     */
+    private void autoRecallIfOnActiveMission(Drone drone, RiskZone zone) {
+        missionRepository.findByAssignedDroneAndStatus(drone, MissionStatus.ACTIVE).ifPresent(mission -> {
+            try {
+                missionCancelPublisher.publish(mission);
+                log.info("Auto-recalling {} from mission {} - entered restricted zone '{}'",
+                        drone.getExternalId(), mission.getId(), zone.getName());
+            } catch (ResponseStatusException e) {
+                log.warn("Could not auto-recall {} from mission {} after entering '{}': {}",
+                        drone.getExternalId(), mission.getId(), zone.getName(), e.getReason());
+            }
+        });
     }
 
     /**

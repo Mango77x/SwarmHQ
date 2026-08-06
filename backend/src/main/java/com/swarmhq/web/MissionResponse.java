@@ -19,7 +19,10 @@ public record MissionResponse(
         String assignedDroneExternalId,
         MissionStatus status,
         MissionPriority priority,
-        Instant createdAt
+        Instant createdAt,
+        String createdBy,
+        String lastModifiedBy,
+        Instant lastModifiedAt
 ) {
     public static MissionResponse from(Mission mission) {
         Coordinate[] coordinates = mission.getRoute().getCoordinates();
@@ -32,6 +35,9 @@ public record MissionResponse(
                 mission.getAssignedDrone() != null ? mission.getAssignedDrone().getExternalId() : null,
                 mission.getStatus(),
                 mission.getPriority(),
-                mission.getCreatedAt());
+                mission.getCreatedAt(),
+                mission.getCreatedBy(),
+                mission.getLastModifiedBy(),
+                mission.getLastModifiedAt());
     }
 }
