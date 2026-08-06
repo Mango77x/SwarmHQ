@@ -883,6 +883,70 @@ four are now done, closing out this layer.
    corners, name the zone, declare it - with a live dashed/filled preview
    of the polygon as it's being drawn.
 
+## Competitive gap analysis (2026)
+
+With all four C2 command layer items done, the project was benchmarked
+against real C2/fleet platforms - Anduril Lattice and Palantir AIP on the
+defense side, DroneSense/Skydio Cloud/DJI FlightHub 2 on the commercial
+drone-fleet side, QGroundControl/PX4 on the open-source ground-control
+side - to find gaps worth closing before calling this portfolio-complete.
+
+What every one of them treats as foundational and SwarmHQ has none of:
+**identity**. The API today has no login and no concept of an operator -
+anyone who can reach it can cancel a mission or force-assign a drone with
+zero attribution, which is the single starkest gap against a domain where
+Palantir's entire security pitch is "every action leaves an audit trail"
+and Anduril's is role-based multi-domain access. Two more concrete,
+scoped gaps followed from the same comparison: PX4/QGroundControl treat a
+geofence as an active constraint (block or auto-recall), where
+`RiskZone` today only raises a passive alert; and every fleet tool
+researched (DroneLogbook, Airdata, DroneSense's Operations Hub) treats
+mission history as core, where SwarmHQ's map only ever shows
+`PENDING`/`ACTIVE` - `COMPLETED`/`FAILED`/`CANCELLED` missions exist in
+the database but are never surfaced anywhere in the UI.
+
+Deliberately not adopted from this research: Anduril Lattice's and
+Auterion Nemyx's kill-chain/effector coordination features. They're the
+most prominent thing either platform actually sells, and they're exactly
+the category this project's own scope boundary rules out - a comparison
+against them stops at command-and-control/situational-awareness parity,
+not weapons integration.
+
+### Hardening & parity layer (next up)
+
+1. **Authentication + RBAC.** The highest-leverage single gap found.
+   Not a hand-rolled OAuth2 server - the research is unanimous that
+   rolling your own has a long history of subtle security mistakes.
+   **Keycloak** as the identity provider (self-hosted via Docker Compose,
+   same pattern as Mosquitto/PostGIS already in the stack; Java-native;
+   full OIDC support, unlike Spring Authorization Server which lacks it),
+   with the backend as an OAuth2 **resource server**
+   (`spring-boot-starter-oauth2-resource-server`, validating Keycloak-
+   issued JWTs) and roles carried as JWT claims
+   (`JwtAuthenticationConverter`). Two roles are enough here -
+   `OPERATOR` (dispatch/cancel/assign missions, declare zones) and
+   `OBSERVER` (read-only) - anything more (attribute-based access via
+   Open Policy Agent, workload identity via SPIFFE/SPIRE) is solving a
+   machine-to-machine or fine-grained-policy problem this project doesn't
+   have yet. Frontend authenticates via the Authorization Code flow with
+   PKCE, the standard pattern for an SPA talking to an OIDC provider.
+2. **Geofence as an active constraint, not just an alert.** No new
+   technology - `ST_Contains` (already in `RiskZoneRepository`) is
+   already the right tool. Warn (or block) at mission creation if the
+   route crosses a `RiskZone`, and/or auto-trigger the existing cancel/
+   RTB path the moment a drone's own position enters one - reusing three
+   systems already built (zones, missions, cancel) rather than adding a
+   fourth.
+3. **Mission history / audit trail in the UI.** **Hibernate Envers**
+   (official Hibernate project, entity-revision versioning) on `Mission`
+   and `RiskZone`, the same tool the research turned up as the standard
+   answer for compliance/traceability in regulated and government
+   contexts, paired with Spring Data JPA's lightweight
+   `@CreatedBy`/`@LastModifiedBy` auditing for a quick who/when on every
+   entity. This one depends on item 1 - there's no meaningful "who" to
+   attribute a change to until an authenticated operator exists, so auth
+   is built first, not skipped to reach this sooner.
+
 ## Continuous integration
 
 Implemented as of Sprint 15 (`.github/workflows/ci.yml`) - three independent
