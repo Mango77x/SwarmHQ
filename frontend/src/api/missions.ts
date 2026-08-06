@@ -42,3 +42,18 @@ export async function cancelMission(id: number): Promise<Mission> {
   }
   return response.json();
 }
+
+// Force-assigns a PENDING mission to a specific drone, bypassing whichever
+// assignment engine (centralized or auction) is currently active. Only
+// PENDING missions and PATROLLING drones are accepted by the backend.
+export async function assignMission(id: number, droneExternalId: string): Promise<Mission> {
+  const response = await fetch(`/api/missions/${id}/assign`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ droneExternalId }),
+  });
+  if (!response.ok) {
+    throw new Error(`POST /api/missions/${id}/assign failed: ${response.status}`);
+  }
+  return response.json();
+}

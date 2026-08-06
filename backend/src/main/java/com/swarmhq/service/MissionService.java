@@ -1,7 +1,10 @@
 package com.swarmhq.service;
 
+import com.swarmhq.model.Drone;
+import com.swarmhq.model.DroneStatus;
 import com.swarmhq.model.Mission;
 import com.swarmhq.model.MissionStatus;
+import com.swarmhq.repository.DroneRepository;
 import com.swarmhq.repository.MissionRepository;
 import com.swarmhq.web.CreateMissionRequest;
 import com.swarmhq.web.MissionResponse;
@@ -28,11 +31,16 @@ public class MissionService {
     private static final GeometryFactory GEOMETRY_FACTORY = new GeometryFactory(new PrecisionModel(), 4326);
 
     private final MissionRepository missionRepository;
+    private final DroneRepository droneRepository;
+    private final MissionAssigner missionAssigner;
     private final MqttClient mqttClient;
     private final ObjectMapper objectMapper;
 
-    public MissionService(MissionRepository missionRepository, MqttClient mqttClient, ObjectMapper objectMapper) {
+    public MissionService(MissionRepository missionRepository, DroneRepository droneRepository,
+            MissionAssigner missionAssigner, MqttClient mqttClient, ObjectMapper objectMapper) {
         this.missionRepository = missionRepository;
+        this.droneRepository = droneRepository;
+        this.missionAssigner = missionAssigner;
         this.mqttClient = mqttClient;
         this.objectMapper = objectMapper;
     }
@@ -77,6 +85,42 @@ public class MissionService {
             case COMPLETED, FAILED, CANCELLED -> throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Mission " + id + " is already " + mission.getStatus() + ", nothing to cancel");
         };
+    }
+
+    /**
+     * Force-assigns a PENDING mission to a specific drone, bypassing
+     * whichever assignment engine (MissionAssignmentService's centralized
+     * pass or AuctionCoordinatorService's auction) is currently active -
+     * the operator is naming the drone directly instead of letting either
+     * algorithm pick one. Reuses {@link MissionAssigner} unchanged, the
+     * same component both engines already hand off through, so a drone
+     * doesn't need to know or care that this assignment came from a human
+     * instead of a scheduled pass.
+     *
+     * Only a PENDING mission can be manually assigned (an ACTIVE one
+     * already has a drone; reassigning it is a cancel-then-reassign, not
+     * this). Only a PATROLLING drone is eligible - not because it has to
+     * be the "best" choice (that heuristic is exactly what this bypasses),
+     * but because a busy, returning, or unreachable drone genuinely can't
+     * take a new order right now.
+     */
+    public MissionResponse assignManually(Long missionId, String droneExternalId) {
+        Mission mission = missionRepository.findById(missionId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Mission " + missionId + " not found"));
+        if (mission.getStatus() != MissionStatus.PENDING) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Mission " + missionId + " is " + mission.getStatus() + ", only a PENDING mission can be manually assigned");
+        }
+
+        Drone drone = droneRepository.findByExternalId(droneExternalId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Drone " + droneExternalId + " not found"));
+        if (drone.getStatus() != DroneStatus.PATROLLING) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Drone " + droneExternalId + " is " + drone.getStatus() + ", not available for assignment");
+        }
+
+        missionAssigner.assign(mission, drone);
+        return MissionResponse.from(mission);
     }
 
     private void publishCancel(Mission mission) {

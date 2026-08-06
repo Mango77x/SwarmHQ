@@ -37,4 +37,9 @@ public class MissionController {
     public MissionResponse cancel(@PathVariable Long id) {
         return missionService.cancel(id);
     }
+
+    @PostMapping("/{id}/assign")
+    public MissionResponse assign(@PathVariable Long id, @RequestBody ManualAssignmentRequest request) {
+        return missionService.assignManually(id, request.droneExternalId());
+    }
 }

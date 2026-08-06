@@ -122,6 +122,58 @@ class MissionControllerTests {
         assertEquals(MissionStatus.ACTIVE, missionRepository.findById(mission.getId()).orElseThrow().getStatus());
     }
 
+    @Test
+    void manuallyAssigningAPendingMissionActivatesItAndFliesTheNamedDrone() throws Exception {
+        Drone drone = droneRepository.saveAndFlush(
+                new Drone("manual-assign-test-drone", "quadcopter", DroneStatus.PATROLLING, 90));
+        Mission mission = missionRepository.saveAndFlush(pendingMission());
+
+        mockMvc.perform(post("/api/missions/{id}/assign", mission.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(new ManualAssignmentRequest(drone.getExternalId()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.assignedDroneExternalId").value(drone.getExternalId()));
+
+        assertEquals(DroneStatus.ON_MISSION, droneRepository.findById(drone.getId()).orElseThrow().getStatus());
+    }
+
+    @Test
+    void manuallyAssigningAnAlreadyActiveMissionIsRejected() throws Exception {
+        Drone drone = droneRepository.saveAndFlush(
+                new Drone("manual-assign-active-test-drone", "quadcopter", DroneStatus.PATROLLING, 90));
+        Mission mission = pendingMission();
+        mission.setStatus(MissionStatus.ACTIVE);
+        missionRepository.saveAndFlush(mission);
+
+        mockMvc.perform(post("/api/missions/{id}/assign", mission.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(new ManualAssignmentRequest(drone.getExternalId()))))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void manuallyAssigningToABusyDroneIsRejected() throws Exception {
+        Drone drone = droneRepository.saveAndFlush(
+                new Drone("manual-assign-busy-test-drone", "quadcopter", DroneStatus.ON_MISSION, 90));
+        Mission mission = missionRepository.saveAndFlush(pendingMission());
+
+        mockMvc.perform(post("/api/missions/{id}/assign", mission.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(new ManualAssignmentRequest(drone.getExternalId()))))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void manuallyAssigningToAnUnknownDroneReturnsNotFound() throws Exception {
+        Mission mission = missionRepository.saveAndFlush(pendingMission());
+
+        mockMvc.perform(post("/api/missions/{id}/assign", mission.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(new ManualAssignmentRequest("no-such-drone"))))
+                .andExpect(status().isNotFound());
+    }
+
     private Mission pendingMission() {
         return new Mission(
                 GEOMETRY_FACTORY.createLineString(new Coordinate[] {
