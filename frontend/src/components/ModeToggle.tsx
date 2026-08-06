@@ -6,13 +6,20 @@ export default function ModeToggle() {
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     fetchMode()
-      .then((state) => setMode(state.mode))
+      .then((state) => {
+        if (!cancelled) setMode(state.mode);
+      })
       .catch(() => {
         // Toggle just stays hidden - nothing else on the page depends on it.
       });
 
-    return connectLiveMode((state) => setMode(state.mode));
+    const disconnect = connectLiveMode((state) => setMode(state.mode));
+    return () => {
+      cancelled = true;
+      disconnect();
+    };
   }, []);
 
   if (mode === null) return null;

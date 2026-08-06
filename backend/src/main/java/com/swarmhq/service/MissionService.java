@@ -61,29 +61,41 @@ public class MissionService {
 
     /**
      * Cancels a mission. A PENDING one was never handed to a drone, so this
-     * just marks it CANCELLED directly. An ACTIVE one needs its drone
-     * recalled first - this only publishes the cancel command; the mission
-     * itself stays ACTIVE until the drone's own mission-status report comes
-     * back through {@code MissionStatusListener}, the same eventual-consistency
-     * path COMPLETED/FAILED already use, rather than the backend guessing
-     * the outcome up front. Anything already terminal (COMPLETED/FAILED/
+     * just marks it CANCELLED directly - via the same atomic
+     * updateStatusIfPending {@code UPDATE ... WHERE status = 'PENDING'}
+     * MissionRepository uses elsewhere, not a find-then-save, since a
+     * find-then-save here could race MissionAssignmentService/
+     * AuctionCoordinatorService assigning this exact mission in between:
+     * the save() would merge our stale (still-PENDING, no-drone) in-memory
+     * copy back over their just-committed assignment, silently un-assigning
+     * a drone that's already been told to fly it. If the atomic update
+     * affects no rows, the mission wasn't PENDING at that instant - falling
+     * through to a fresh read picks up whatever it actually is now (most
+     * often ACTIVE, meaning it just got assigned right under us, which the
+     * ACTIVE branch below still handles correctly).
+     *
+     * An ACTIVE mission needs its drone recalled first - this only
+     * publishes the cancel command; the mission itself stays ACTIVE until
+     * the drone's own mission-status report comes back through
+     * {@code MissionStatusListener}, the same eventual-consistency path
+     * COMPLETED/FAILED already use, rather than the backend guessing the
+     * outcome up front. Anything already terminal (COMPLETED/FAILED/
      * CANCELLED) is rejected - there's nothing left to cancel.
      */
     public MissionResponse cancel(Long id) {
+        if (missionRepository.updateStatusIfPending(id, MissionStatus.CANCELLED) > 0) {
+            return MissionResponse.from(missionRepository.findByIdWithOptionalDrone(id).orElseThrow());
+        }
+
         Mission mission = missionRepository.findByIdWithOptionalDrone(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Mission " + id + " not found"));
-
         return switch (mission.getStatus()) {
-            case PENDING -> {
-                mission.setStatus(MissionStatus.CANCELLED);
-                yield MissionResponse.from(missionRepository.save(mission));
-            }
             case ACTIVE -> {
                 publishCancel(mission);
                 yield MissionResponse.from(mission);
             }
-            case COMPLETED, FAILED, CANCELLED -> throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Mission " + id + " is already " + mission.getStatus() + ", nothing to cancel");
+            case PENDING, COMPLETED, FAILED, CANCELLED -> throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Mission " + id + " is " + mission.getStatus() + ", nothing to cancel");
         };
     }
 
@@ -103,15 +115,24 @@ public class MissionService {
      * be the "best" choice (that heuristic is exactly what this bypasses),
      * but because a busy, returning, or unreachable drone genuinely can't
      * take a new order right now.
+     *
+     * The drone is validated before the mission is ever touched, then the
+     * PENDING -> ACTIVE claim itself goes through the same atomic
+     * updateStatusIfPending {@code UPDATE ... WHERE status = 'PENDING'}
+     * cancel() uses - it's what actually closes the race against
+     * MissionAssignmentService's/AuctionCoordinatorService's own scheduled
+     * passes, which claim a PENDING mission the exact same way. Without
+     * it, two engines could both read PENDING before either commits, and
+     * the loser's plain save() (a detached-entity merge) would silently
+     * clobber the winner's assignedDrone back to null. Validating the
+     * drone first means a rejected drone never leaves a claim to undo.
+     * (The drone side of this race - the same PATROLLING drone getting
+     * claimed by a scheduled pass between the check above and
+     * MissionAssigner.assign() actually flipping it - is narrower and
+     * deliberately left as-is: closing it needs an equivalent atomic claim
+     * on Drone, which none of the three assignment paths have today.)
      */
     public MissionResponse assignManually(Long missionId, String droneExternalId) {
-        Mission mission = missionRepository.findById(missionId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Mission " + missionId + " not found"));
-        if (mission.getStatus() != MissionStatus.PENDING) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Mission " + missionId + " is " + mission.getStatus() + ", only a PENDING mission can be manually assigned");
-        }
-
         Drone drone = droneRepository.findByExternalId(droneExternalId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Drone " + droneExternalId + " not found"));
         if (drone.getStatus() != DroneStatus.PATROLLING) {
@@ -119,7 +140,18 @@ public class MissionService {
                     "Drone " + droneExternalId + " is " + drone.getStatus() + ", not available for assignment");
         }
 
-        missionAssigner.assign(mission, drone);
+        if (missionRepository.updateStatusIfPending(missionId, MissionStatus.ACTIVE) == 0) {
+            Mission existing = missionRepository.findById(missionId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Mission " + missionId + " not found"));
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Mission " + missionId + " is " + existing.getStatus() + ", only a PENDING mission can be manually assigned");
+        }
+
+        Mission mission = missionRepository.findById(missionId).orElseThrow();
+        if (!missionAssigner.assign(mission, drone)) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Could not reach the drone to assign mission " + missionId);
+        }
         return MissionResponse.from(mission);
     }
 

@@ -43,16 +43,31 @@ public class MissionAssigner {
         this.objectMapper = objectMapper;
     }
 
-    public void assign(Mission mission, Drone drone) {
+    /**
+     * Returns whether the MQTT publish actually went out. The mission/drone
+     * DB state is committed either way - a failed publish still leaves the
+     * mission {@code ACTIVE} and the drone {@code ON_MISSION}, since there's
+     * no clean way to roll either back once other state may already depend
+     * on it (a caller in the middle of picking the *next* PENDING mission,
+     * for instance). {@link MissionAssignmentService} and
+     * {@link AuctionCoordinatorService} both currently ignore this return
+     * value, same as before this existed - a scheduled pass has no operator
+     * waiting on an HTTP response to tell. {@link MissionService#assignManually}
+     * does check it, since that call is a direct operator action and can
+     * meaningfully surface "the drone never actually got the order" as a
+     * 503 instead of reporting success on a mission that's silently stuck.
+     */
+    public boolean assign(Mission mission, Drone drone) {
         mission.setAssignedDrone(drone);
         mission.setStatus(MissionStatus.ACTIVE);
         missionRepository.save(mission);
         droneService.markOnMission(drone);
-        publishAssignment(mission, drone);
+        boolean published = publishAssignment(mission, drone);
         log.info("Assigned mission {} ({} priority) to {}", mission.getId(), mission.getPriority(), drone.getExternalId());
+        return published;
     }
 
-    private void publishAssignment(Mission mission, Drone drone) {
+    private boolean publishAssignment(Mission mission, Drone drone) {
         List<double[]> route = Arrays.stream(mission.getRoute().getCoordinates())
                 .map(c -> new double[] {c.x, c.y})
                 .toList();
@@ -64,9 +79,11 @@ public class MissionAssigner {
             MqttMessage message = new MqttMessage(objectMapper.writeValueAsBytes(payload));
             message.setQos(1);
             mqttClient.publish("drones/" + drone.getExternalId() + "/mission", message);
+            return true;
         } catch (MqttException e) {
             log.error("Failed to publish mission assignment for mission {} to drone {}: {}",
                     mission.getId(), drone.getExternalId(), e.getMessage(), e);
+            return false;
         }
     }
 }

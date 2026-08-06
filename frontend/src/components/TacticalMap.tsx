@@ -249,7 +249,7 @@ export default function TacticalMap() {
         if (dispatchingRef.current || zoneDrawingRef.current) return;
         const id = event.features?.[0]?.properties?.id;
         if (typeof id !== "number") return;
-        setSelectedMission(missionsRef.current.find((m) => m.id === id) ?? null);
+        selectMission(missionsRef.current.find((m) => m.id === id) ?? null);
       });
       mapRef.current?.on("mouseenter", MISSIONS_SOURCE_ID, () => {
         if (mapRef.current) mapRef.current.getCanvas().style.cursor = "pointer";
@@ -327,6 +327,13 @@ export default function TacticalMap() {
   function toggleDispatch() {
     setDispatching((current) => !current);
     setPendingPoints([]);
+    // Mutually exclusive with zone drawing - both capture raw map clicks,
+    // and the click handler only ever checks dispatchingRef first, so
+    // leaving zone-drawing on here would silently eat every click as a
+    // dispatch point while ZoneDispatchControl sat stuck showing 0 corners.
+    setZoneDrawing(false);
+    setZonePoints([]);
+    setZoneName("");
   }
 
   function confirmDispatch() {
@@ -353,6 +360,9 @@ export default function TacticalMap() {
     setZoneDrawing((current) => !current);
     setZonePoints([]);
     setZoneName("");
+    // Reciprocal of toggleDispatch's guard above.
+    setDispatching(false);
+    setPendingPoints([]);
   }
 
   function confirmZone() {
@@ -401,34 +411,63 @@ export default function TacticalMap() {
     };
   }, [selectedMission?.id, selectedMission?.status]);
 
+  // Selects a different mission (or clears the selection) - distinct from
+  // refreshMissions' own setSelectedMission call, which re-syncs the
+  // *same* mission's fresh data on each poll tick and must never reset
+  // these, or it'd clobber a legitimately in-flight cancel/assign's own
+  // spinner state every 5s.
+  function selectMission(mission: Mission | null) {
+    setSelectedMission(mission);
+    setCancelling(false);
+    setAssigning(false);
+  }
+
   function assignSelectedMission(droneExternalId: string) {
     if (!selectedMission) return;
+    const missionId = selectedMission.id;
     setAssigning(true);
-    assignMission(selectedMission.id, droneExternalId)
+    assignMission(missionId, droneExternalId)
       .then((updated) => {
-        setSelectedMission(updated);
         setError(null);
         refreshMissions();
+        // Only apply the result if the operator is still looking at this
+        // same mission - otherwise this stale response would silently
+        // overwrite whatever they've since selected instead, or reopen a
+        // panel they explicitly closed.
+        if (selectedMissionIdRef.current === missionId) {
+          setSelectedMission(updated);
+        }
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to assign mission");
+        if (selectedMissionIdRef.current === missionId) {
+          setError(err instanceof Error ? err.message : "Failed to assign mission");
+        }
       })
-      .finally(() => setAssigning(false));
+      .finally(() => {
+        if (selectedMissionIdRef.current === missionId) setAssigning(false);
+      });
   }
 
   function cancelSelectedMission() {
     if (!selectedMission) return;
+    const missionId = selectedMission.id;
     setCancelling(true);
-    cancelMission(selectedMission.id)
+    cancelMission(missionId)
       .then((updated) => {
-        setSelectedMission(updated);
         setError(null);
         refreshMissions();
+        if (selectedMissionIdRef.current === missionId) {
+          setSelectedMission(updated);
+        }
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to cancel mission");
+        if (selectedMissionIdRef.current === missionId) {
+          setError(err instanceof Error ? err.message : "Failed to cancel mission");
+        }
       })
-      .finally(() => setCancelling(false));
+      .finally(() => {
+        if (selectedMissionIdRef.current === missionId) setCancelling(false);
+      });
   }
 
   useEffect(() => {
@@ -510,7 +549,7 @@ export default function TacticalMap() {
           mission={selectedMission}
           cancelling={cancelling}
           onCancel={cancelSelectedMission}
-          onClose={() => setSelectedMission(null)}
+          onClose={() => selectMission(null)}
           availableDrones={availableDrones}
           assigning={assigning}
           onAssign={assignSelectedMission}

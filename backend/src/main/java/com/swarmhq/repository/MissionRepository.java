@@ -61,4 +61,31 @@ public interface MissionRepository extends JpaRepository<Mission, Long> {
     @Modifying
     @Query("UPDATE Mission m SET m.status = :newStatus WHERE m.id = :id AND m.status = com.swarmhq.model.MissionStatus.ACTIVE")
     int updateStatusIfActive(@Param("id") Long id, @Param("newStatus") MissionStatus newStatus);
+
+    // Same atomic single-UPDATE idiom as updateStatusIfActive above, for
+    // the mirror problem on the PENDING side: MissionService.cancel() and
+    // .assignManually() both need to act on a PENDING mission without
+    // racing MissionAssignmentService's/AuctionCoordinatorService's own
+    // scheduled passes, which claim a PENDING mission the same way. A
+    // plain find-then-save (what both methods did before this) reads a
+    // detached Mission and merges it back wholesale on save() - if a
+    // scheduler assigns the same mission in between, that merge silently
+    // clobbers the assignment it just made. This closes that window the
+    // same way updateStatusIfActive already closes it on the other side:
+    // Postgres' row lock on the UPDATE, not application code, decides who
+    // wins.
+    // clearAutomatically = true matters here in a way it doesn't for
+    // updateStatusIfActive above: both callers immediately re-read the
+    // same mission by id right after this update, in the same request
+    // (and therefore, under Spring's default open-in-view, the same
+    // persistence context/first-level cache for the whole request). A
+    // bulk @Modifying UPDATE writes straight to the database without
+    // touching that cache, so without this flag the very next find-by-id
+    // in the same request would silently hand back the pre-update entity
+    // - a real bug this caught in MissionControllerTests, not just a
+    // theoretical one.
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE Mission m SET m.status = :newStatus WHERE m.id = :id AND m.status = com.swarmhq.model.MissionStatus.PENDING")
+    int updateStatusIfPending(@Param("id") Long id, @Param("newStatus") MissionStatus newStatus);
 }
