@@ -3,6 +3,7 @@ package com.swarmhq.web;
 import com.swarmhq.service.MissionService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -30,5 +31,10 @@ public class MissionController {
     @ResponseStatus(HttpStatus.CREATED)
     public MissionResponse create(@RequestBody CreateMissionRequest request) {
         return missionService.create(request);
+    }
+
+    @PostMapping("/{id}/cancel")
+    public MissionResponse cancel(@PathVariable Long id) {
+        return missionService.cancel(id);
     }
 }

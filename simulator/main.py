@@ -112,6 +112,25 @@ def _make_mission_assigned_handler(drone: Drone):
     return _on_mission_assigned
 
 
+def _make_mission_cancel_handler(drone: Drone):
+    # Same thread-safety reasoning as _on_mission_assigned above -
+    # Drone.cancel_mission() takes its own lock too.
+    def _on_mission_cancel(_client, _userdata, message):
+        try:
+            payload = json.loads(message.payload)
+            accepted = drone.cancel_mission(payload["missionId"])
+            if accepted:
+                log.info("%s recalled to base, cancelling mission %s",
+                         drone.external_id, payload["missionId"])
+            else:
+                log.warning("%s ignored cancel for mission %s - not currently flying it",
+                             drone.external_id, payload["missionId"])
+        except Exception:
+            log.exception("Failed to process mission cancel for %s", drone.external_id)
+
+    return _on_mission_cancel
+
+
 def _make_mission_available_handler(drone: Drone, client: mqtt.Client):
     # The auction-mode counterpart to _on_mission_assigned: instead of
     # waiting to be told, an idle drone bids on what it hears about. Cost
@@ -169,6 +188,9 @@ def _connect_drone_client(drone: Drone) -> mqtt.Client:
     mission_topic = f"drones/{drone.external_id}/mission"
     client.subscribe(mission_topic)
     client.message_callback_add(mission_topic, _make_mission_assigned_handler(drone))
+    cancel_topic = f"drones/{drone.external_id}/mission/cancel"
+    client.subscribe(cancel_topic)
+    client.message_callback_add(cancel_topic, _make_mission_cancel_handler(drone))
     # Always subscribed, rather than gated behind SWARM_MODE at startup -
     # both bidding and the mode itself follow the backend live instead.
     client.subscribe("missions/available")

@@ -34,6 +34,14 @@ public interface MissionRepository extends JpaRepository<Mission, Long> {
     @Query("SELECT m FROM Mission m JOIN FETCH m.assignedDrone WHERE m.id = :id")
     Optional<Mission> findByIdWithDrone(@Param("id") Long id);
 
+    // LEFT (not inner) JOIN FETCH, unlike findByIdWithDrone above: used by
+    // MissionService.cancel(), which has to handle a PENDING mission (no
+    // assignedDrone yet) as well as an ACTIVE one, so an inner join would
+    // silently exclude the PENDING case entirely instead of just fetching
+    // a null drone for it.
+    @Query("SELECT m FROM Mission m LEFT JOIN FETCH m.assignedDrone WHERE m.id = :id")
+    Optional<Mission> findByIdWithOptionalDrone(@Param("id") Long id);
+
     // A single atomic UPDATE ... WHERE status = 'ACTIVE', rather than a
     // read-then-write check in Java. MissionStatusListener's old "already
     // COMPLETED/FAILED, ignore the redelivery" guard was racy under

@@ -80,6 +80,7 @@ public class MissionStatusListener {
         MissionStatus newStatus = switch (payload.status()) {
             case "COMPLETED" -> MissionStatus.COMPLETED;
             case "FAILED" -> MissionStatus.FAILED;
+            case "CANCELLED" -> MissionStatus.CANCELLED;
             default -> null;
         };
         if (newStatus == null) {
@@ -90,8 +91,9 @@ public class MissionStatusListener {
         // MQTT QoS1 is "at least once" - a redelivered duplicate (e.g. the
         // publisher retransmitting because a PUBACK arrived slower than its
         // retry timer, more likely now that the handshake is TLS) is
-        // expected, spec-compliant behavior, not a bug. COMPLETED/FAILED are
-        // terminal, so a repeat of the same report should be a no-op - but
+        // expected, spec-compliant behavior, not a bug. COMPLETED/FAILED/
+        // CANCELLED are all terminal, so a repeat of the same report should
+        // be a no-op - but
         // a plain "read status, then write" check is racy under genuinely
         // concurrent redeliveries (both can read ACTIVE before either write
         // commits). This single atomic UPDATE ... WHERE status = 'ACTIVE'
@@ -112,7 +114,10 @@ public class MissionStatusListener {
                         + (payload.reason() != null ? " (" + payload.reason() + ")" : "");
                 alertService.raiseMissionEvent(mission, EventType.MISSION_FAILED, detail);
             }
-            default -> throw new IllegalStateException("Unreachable - newStatus is always COMPLETED or FAILED here");
+            case CANCELLED -> alertService.raiseMissionEvent(mission, EventType.MISSION_CANCELLED,
+                    "Mission " + mission.getId() + " cancelled, drone recalled to base");
+            default -> throw new IllegalStateException(
+                    "Unreachable - newStatus is always COMPLETED, FAILED, or CANCELLED here");
         }
     }
 }

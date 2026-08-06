@@ -1,5 +1,5 @@
 export type MissionPriority = "LOW" | "MEDIUM" | "HIGH";
-export type MissionStatus = "PENDING" | "ACTIVE" | "COMPLETED" | "FAILED";
+export type MissionStatus = "PENDING" | "ACTIVE" | "COMPLETED" | "FAILED" | "CANCELLED";
 
 export interface Mission {
   id: number;
@@ -27,6 +27,18 @@ export async function createMission(route: [number, number][], priority: Mission
   });
   if (!response.ok) {
     throw new Error(`POST /api/missions failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+// A PENDING mission cancels immediately; an ACTIVE one recalls its drone
+// to base but the response still reports it as ACTIVE - it only flips to
+// CANCELLED once the drone's own status report comes back, same
+// eventual-consistency the backend already uses for COMPLETED/FAILED.
+export async function cancelMission(id: number): Promise<Mission> {
+  const response = await fetch(`/api/missions/${id}/cancel`, { method: "POST" });
+  if (!response.ok) {
+    throw new Error(`POST /api/missions/${id}/cancel failed: ${response.status}`);
   }
   return response.json();
 }

@@ -90,6 +90,22 @@ class MissionStatusListenerTests {
     }
 
     @Test
+    void marksMissionCancelledAndRaisesMissionCancelledEvent() throws Exception {
+        givenAnActiveMission("test-drone-5");
+        publishStatus(Map.of("missionId", mission.getId(), "status", "CANCELLED"));
+
+        Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+            var updated = missionRepository.findById(mission.getId());
+            assertTrue(updated.isPresent());
+            assertEquals(MissionStatus.CANCELLED, updated.get().getStatus());
+        });
+
+        List<Event> events = missionEvents();
+        assertEquals(1, events.size());
+        assertEquals(EventType.MISSION_CANCELLED, events.get(0).getType());
+    }
+
+    @Test
     void marksMissionFailedAndRaisesMissionFailedEvent() throws Exception {
         // Uses its own distinct identity rather than sharing the COMPLETED
         // test's above, to rule out any interference between the two

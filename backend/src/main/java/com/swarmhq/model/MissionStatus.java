@@ -4,5 +4,6 @@ public enum MissionStatus {
     PENDING,
     ACTIVE,
     COMPLETED,
-    FAILED
+    FAILED,
+    CANCELLED
 }
