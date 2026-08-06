@@ -1,5 +1,6 @@
 import { Client } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
+import { apiFetch } from "./http";
 
 export type EventType =
   | "LOW_BATTERY"
@@ -20,7 +21,7 @@ export interface DroneEvent {
 const EVENT_UPDATES_TOPIC = "/topic/events";
 
 export async function fetchEvents(): Promise<DroneEvent[]> {
-  const response = await fetch("/api/events");
+  const response = await apiFetch("/api/events");
   if (!response.ok) {
     throw new Error(`GET /api/events failed: ${response.status}`);
   }

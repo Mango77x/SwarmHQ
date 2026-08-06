@@ -1,3 +1,5 @@
+import { apiFetch } from "./http";
+
 export interface KpiSummary {
   activeMissions: number;
   /** null, not 0, when no mission has ever completed or failed yet. */
@@ -7,7 +9,7 @@ export interface KpiSummary {
 }
 
 export async function fetchKpis(): Promise<KpiSummary> {
-  const response = await fetch("/api/kpis");
+  const response = await apiFetch("/api/kpis");
   if (!response.ok) {
     throw new Error(`GET /api/kpis failed: ${response.status}`);
   }

@@ -1,5 +1,6 @@
 import { Client } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
+import { apiFetch } from "./http";
 
 export type MissionAssignmentMode = "centralized" | "auction";
 
@@ -10,7 +11,7 @@ export interface ModeState {
 const MODE_UPDATES_TOPIC = "/topic/mode";
 
 export async function fetchMode(): Promise<ModeState> {
-  const response = await fetch("/api/mode");
+  const response = await apiFetch("/api/mode");
   if (!response.ok) {
     throw new Error(`GET /api/mode failed: ${response.status}`);
   }
@@ -18,7 +19,7 @@ export async function fetchMode(): Promise<ModeState> {
 }
 
 export async function updateMode(mode: MissionAssignmentMode): Promise<ModeState> {
-  const response = await fetch("/api/mode", {
+  const response = await apiFetch("/api/mode", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mode }),

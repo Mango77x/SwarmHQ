@@ -914,22 +914,40 @@ not weapons integration.
 
 ### Hardening & parity layer (next up)
 
-1. **Authentication + RBAC.** The highest-leverage single gap found.
-   Not a hand-rolled OAuth2 server - the research is unanimous that
-   rolling your own has a long history of subtle security mistakes.
-   **Keycloak** as the identity provider (self-hosted via Docker Compose,
-   same pattern as Mosquitto/PostGIS already in the stack; Java-native;
-   full OIDC support, unlike Spring Authorization Server which lacks it),
-   with the backend as an OAuth2 **resource server**
-   (`spring-boot-starter-oauth2-resource-server`, validating Keycloak-
-   issued JWTs) and roles carried as JWT claims
-   (`JwtAuthenticationConverter`). Two roles are enough here -
-   `OPERATOR` (dispatch/cancel/assign missions, declare zones) and
-   `OBSERVER` (read-only) - anything more (attribute-based access via
-   Open Policy Agent, workload identity via SPIFFE/SPIRE) is solving a
-   machine-to-machine or fine-grained-policy problem this project doesn't
-   have yet. Frontend authenticates via the Authorization Code flow with
-   PKCE, the standard pattern for an SPA talking to an OIDC provider.
+1. ✅ **Authentication + RBAC.** Done - the highest-leverage single gap
+   found. Not a hand-rolled OAuth2 server - the research was unanimous
+   that rolling your own has a long history of subtle security mistakes.
+   **Keycloak** is the identity provider (`docker-compose.yml`, self-
+   hosted, same pattern as Mosquitto/PostGIS; realm/roles/client/demo
+   users auto-imported on boot from `infra/keycloak/import`, the same
+   "provisioned via a committed file" spirit as `mosquitto-setup`). The
+   backend is an OAuth2 **resource server**
+   (`spring-boot-starter-oauth2-resource-server`, `SecurityConfig`)
+   validating Keycloak-issued JWTs via `jwk-set-uri` (not `issuer-uri` -
+   the browser and the backend container reach Keycloak through two
+   different hostnames, so a token's `iss` claim would never match an
+   issuer string the backend could also dial itself; see the comment in
+   `application.properties`), with realm roles read from the JWT's
+   `realm_access.roles` claim (Keycloak's own location, not the `scope`
+   claim `JwtGrantedAuthoritiesConverter` reads by default) and mapped to
+   Spring authorities. Two roles: `OPERATOR` (every mutating endpoint -
+   dispatch/cancel/assign missions, declare zones, switch the live
+   assignment mode) and `OBSERVER` (read-only; every `GET` stays public
+   regardless of role, this is a demo map, not a classified system).
+   Anything more (attribute-based access via Open Policy Agent, workload
+   identity via SPIFFE/SPIRE) would be solving a machine-to-machine or
+   fine-grained-policy problem this project doesn't have. The frontend
+   (`react-oidc-context`) authenticates via the Authorization Code flow
+   with PKCE, the standard pattern for an SPA talking to an OIDC
+   provider, and every `api/*.ts` call goes through a single `apiFetch`
+   wrapper (`api/http.ts`) that attaches the access token, so no
+   individual module needs to know Keycloak exists.
+   **Known follow-up, not silently skipped:** the `/ws` STOMP endpoint
+   itself isn't authenticated yet. Its telemetry/alert/mode broadcasts
+   are read-only, same as the public GETs, so there's no way to *act*
+   over that channel today - but authenticating the STOMP CONNECT frame
+   is a different mechanism from the HTTP filter chain above it, and is
+   tracked separately rather than assumed covered.
 2. **Geofence as an active constraint, not just an alert.** No new
    technology - `ST_Contains` (already in `RiskZoneRepository`) is
    already the right tool. Warn (or block) at mission creation if the

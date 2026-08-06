@@ -1,3 +1,5 @@
+import { apiFetch } from "./http";
+
 export type MissionPriority = "LOW" | "MEDIUM" | "HIGH";
 export type MissionStatus = "PENDING" | "ACTIVE" | "COMPLETED" | "FAILED" | "CANCELLED";
 
@@ -12,7 +14,7 @@ export interface Mission {
 }
 
 export async function fetchMissions(): Promise<Mission[]> {
-  const response = await fetch("/api/missions");
+  const response = await apiFetch("/api/missions");
   if (!response.ok) {
     throw new Error(`GET /api/missions failed: ${response.status}`);
   }
@@ -20,7 +22,7 @@ export async function fetchMissions(): Promise<Mission[]> {
 }
 
 export async function createMission(route: [number, number][], priority: MissionPriority): Promise<Mission> {
-  const response = await fetch("/api/missions", {
+  const response = await apiFetch("/api/missions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ route, priority }),
@@ -36,7 +38,7 @@ export async function createMission(route: [number, number][], priority: Mission
 // CANCELLED once the drone's own status report comes back, same
 // eventual-consistency the backend already uses for COMPLETED/FAILED.
 export async function cancelMission(id: number): Promise<Mission> {
-  const response = await fetch(`/api/missions/${id}/cancel`, { method: "POST" });
+  const response = await apiFetch(`/api/missions/${id}/cancel`, { method: "POST" });
   if (!response.ok) {
     throw new Error(`POST /api/missions/${id}/cancel failed: ${response.status}`);
   }
@@ -47,7 +49,7 @@ export async function cancelMission(id: number): Promise<Mission> {
 // assignment engine (centralized or auction) is currently active. Only
 // PENDING missions and PATROLLING drones are accepted by the backend.
 export async function assignMission(id: number, droneExternalId: string): Promise<Mission> {
-  const response = await fetch(`/api/missions/${id}/assign`, {
+  const response = await apiFetch(`/api/missions/${id}/assign`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ droneExternalId }),

@@ -248,6 +248,22 @@ purpose: plain `./mvnw test` / `./mvnw spring-boot:run` stay fast and
 don't require Node at all. Only reach for `-Pfrontend` when you actually
 need the bundled artifact.
 
+## Signing in (Keycloak)
+
+The app requires a login as of the "Hardening & parity layer" in
+PROJECT_OVERVIEW.md. `docker compose up -d` also starts Keycloak
+(`http://localhost:8081`) and auto-imports a `swarmhq` realm from
+`infra/keycloak/import/swarmhq-realm.json` with two demo users:
+
+| Username | Password | Role |
+|---|---|---|
+| `operator1` | `operator1` | `OPERATOR` - can dispatch/cancel/assign missions, declare zones |
+| `observer1` | `observer1` | `OBSERVER` - read-only |
+
+Keycloak's own admin console is `http://localhost:8081` (`admin`/`admin`
+by default, `KEYCLOAK_ADMIN_PASSWORD` in `.env` to change it) - only
+needed to inspect or edit the realm directly, not for day-to-day use.
+
 ## Environment variables
 
 Copy `.env.example` to `.env` before first run; `.env` is gitignored so each

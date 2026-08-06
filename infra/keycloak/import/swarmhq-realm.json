@@ -1,0 +1,53 @@
+{
+  "realm": "swarmhq",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "roles": {
+    "realm": [
+      { "name": "OPERATOR", "description": "Can dispatch, cancel, and reassign missions, and declare zones" },
+      { "name": "OBSERVER", "description": "Read-only access to the tactical map and dashboards" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "swarmhq-frontend",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:5173/*", "http://localhost:8080/*"],
+      "webOrigins": ["http://localhost:5173", "http://localhost:8080"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "operator1",
+      "enabled": true,
+      "email": "operator1@swarmhq.local",
+      "emailVerified": true,
+      "firstName": "Operator",
+      "lastName": "One",
+      "requiredActions": [],
+      "credentials": [{ "type": "password", "value": "operator1", "temporary": false }],
+      "realmRoles": ["OPERATOR"]
+    },
+    {
+      "username": "observer1",
+      "enabled": true,
+      "email": "observer1@swarmhq.local",
+      "emailVerified": true,
+      "firstName": "Observer",
+      "lastName": "One",
+      "requiredActions": [],
+      "credentials": [{ "type": "password", "value": "observer1", "temporary": false }],
+      "realmRoles": ["OBSERVER"]
+    }
+  ]
+}

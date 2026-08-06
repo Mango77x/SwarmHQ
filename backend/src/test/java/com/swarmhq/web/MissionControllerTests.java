@@ -15,7 +15,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
@@ -69,6 +72,7 @@ class MissionControllerTests {
                 MissionPriority.LOW);
 
         mockMvc.perform(post("/api/missions")
+                        .with(operator())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(request)))
                 .andExpect(status().isCreated())
@@ -81,7 +85,7 @@ class MissionControllerTests {
     void cancellingAPendingMissionMarksItCancelledImmediately() throws Exception {
         Mission mission = missionRepository.saveAndFlush(pendingMission());
 
-        mockMvc.perform(post("/api/missions/{id}/cancel", mission.getId()))
+        mockMvc.perform(post("/api/missions/{id}/cancel", mission.getId()).with(operator()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
     }
@@ -92,13 +96,13 @@ class MissionControllerTests {
         mission.setStatus(MissionStatus.COMPLETED);
         missionRepository.saveAndFlush(mission);
 
-        mockMvc.perform(post("/api/missions/{id}/cancel", mission.getId()))
+        mockMvc.perform(post("/api/missions/{id}/cancel", mission.getId()).with(operator()))
                 .andExpect(status().isConflict());
     }
 
     @Test
     void cancellingAnUnknownMissionReturnsNotFound() throws Exception {
-        mockMvc.perform(post("/api/missions/{id}/cancel", 9_999_999L))
+        mockMvc.perform(post("/api/missions/{id}/cancel", 9_999_999L).with(operator()))
                 .andExpect(status().isNotFound());
     }
 
@@ -115,7 +119,7 @@ class MissionControllerTests {
         mission.setStatus(MissionStatus.ACTIVE);
         missionRepository.saveAndFlush(mission);
 
-        mockMvc.perform(post("/api/missions/{id}/cancel", mission.getId()))
+        mockMvc.perform(post("/api/missions/{id}/cancel", mission.getId()).with(operator()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
 
@@ -129,6 +133,7 @@ class MissionControllerTests {
         Mission mission = missionRepository.saveAndFlush(pendingMission());
 
         mockMvc.perform(post("/api/missions/{id}/assign", mission.getId())
+                        .with(operator())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(new ManualAssignmentRequest(drone.getExternalId()))))
                 .andExpect(status().isOk())
@@ -147,6 +152,7 @@ class MissionControllerTests {
         missionRepository.saveAndFlush(mission);
 
         mockMvc.perform(post("/api/missions/{id}/assign", mission.getId())
+                        .with(operator())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(new ManualAssignmentRequest(drone.getExternalId()))))
                 .andExpect(status().isConflict());
@@ -159,6 +165,7 @@ class MissionControllerTests {
         Mission mission = missionRepository.saveAndFlush(pendingMission());
 
         mockMvc.perform(post("/api/missions/{id}/assign", mission.getId())
+                        .with(operator())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(new ManualAssignmentRequest(drone.getExternalId()))))
                 .andExpect(status().isConflict());
@@ -169,6 +176,7 @@ class MissionControllerTests {
         Mission mission = missionRepository.saveAndFlush(pendingMission());
 
         mockMvc.perform(post("/api/missions/{id}/assign", mission.getId())
+                        .with(operator())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(new ManualAssignmentRequest("no-such-drone"))))
                 .andExpect(status().isNotFound());
@@ -181,5 +189,13 @@ class MissionControllerTests {
                         new Coordinate(-3.6978, 40.4228)
                 }),
                 MissionPriority.MEDIUM);
+    }
+
+    /** A mock JWT carrying the ROLE_OPERATOR authority SecurityConfig requires
+     * on every mutating endpoint - stands in for a real Keycloak-issued token
+     * without needing Keycloak itself running for these tests. */
+    private static RequestPostProcessor operator() {
+        return SecurityMockMvcRequestPostProcessors.jwt()
+                .authorities(new SimpleGrantedAuthority("ROLE_OPERATOR"));
     }
 }

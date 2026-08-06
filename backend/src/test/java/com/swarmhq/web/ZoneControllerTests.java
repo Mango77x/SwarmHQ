@@ -5,7 +5,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
@@ -52,6 +55,7 @@ class ZoneControllerTests {
                 new double[] {-3.71, 40.41}));
 
         mockMvc.perform(post("/api/zones")
+                        .with(operator())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(request)))
                 .andExpect(status().isCreated())
@@ -67,6 +71,7 @@ class ZoneControllerTests {
                 new double[] {-3.71, 40.40}));
 
         mockMvc.perform(post("/api/zones")
+                        .with(operator())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(request)))
                 .andExpect(status().isBadRequest());
@@ -85,8 +90,14 @@ class ZoneControllerTests {
                 new double[] {-3.72, 40.40}));
 
         mockMvc.perform(post("/api/zones")
+                        .with(operator())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(request)))
                 .andExpect(status().isBadRequest());
+    }
+
+    private static RequestPostProcessor operator() {
+        return SecurityMockMvcRequestPostProcessors.jwt()
+                .authorities(new SimpleGrantedAuthority("ROLE_OPERATOR"));
     }
 }

@@ -15,8 +15,10 @@
     "@stomp/stompjs": "^7.3.0",
     "@tailwindcss/vite": "^4.3.3",
     "maplibre-gl": "^6.0.0",
+    "oidc-client-ts": "^3.5.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-oidc-context": "^3.3.1",
     "sockjs-client": "^1.6.1",
     "tailwindcss": "^4.3.3"
   },

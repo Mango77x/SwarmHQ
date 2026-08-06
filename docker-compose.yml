@@ -49,6 +49,25 @@ services:
       - ./infra/mosquitto/data:/mosquitto/data
       - ./infra/mosquitto/log:/mosquitto/log
 
+  # Identity provider (OIDC/OAuth2) - realm/roles/client/demo users are
+  # auto-imported from infra/keycloak/import on first boot (--import-realm),
+  # same "provisioned via a committed file, not clicked together" spirit as
+  # mosquitto-setup. start-dev is a local-only mode (no TLS, relaxed
+  # hostname checks) - fine for this project's scope, not how you'd run
+  # Keycloak itself in production.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: swarmhq-keycloak
+    restart: unless-stopped
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./infra/keycloak/import:/opt/keycloak/data/import:ro
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8080"
+
   backend:
     build:
       context: .
@@ -59,6 +78,8 @@ services:
       postgis:
         condition: service_healthy
       mosquitto:
+        condition: service_started
+      keycloak:
         condition: service_started
     environment:
       # Container-to-container hostnames/ports on the compose network -
@@ -73,6 +94,8 @@ services:
       MQTT_PORT: 8883
       MQTT_BACKEND_PASSWORD: ${MQTT_BACKEND_PASSWORD:?set MQTT_BACKEND_PASSWORD in .env}
       MQTT_CA_CERT_PATH: /mosquitto/certs/ca.crt
+      KEYCLOAK_HOST: keycloak
+      KEYCLOAK_INTERNAL_PORT: 8080
       # Sprint 14: "centralized" (default) or "auction" - just the
       # *initial* value since Sprint 16, switch it live afterward via the
       # frontend toggle or PUT /api/mode instead (see HELP.md), set via

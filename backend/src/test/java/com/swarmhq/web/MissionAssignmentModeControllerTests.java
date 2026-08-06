@@ -7,7 +7,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -49,6 +52,7 @@ class MissionAssignmentModeControllerTests {
     @Test
     void putSwitchesToAuction() throws Exception {
         mockMvc.perform(put("/api/mode")
+                        .with(operator())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"mode\":\"auction\"}"))
                 .andExpect(status().isOk())
@@ -60,10 +64,16 @@ class MissionAssignmentModeControllerTests {
     @Test
     void putRejectsAnUnknownMode() throws Exception {
         mockMvc.perform(put("/api/mode")
+                        .with(operator())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"mode\":\"bogus\"}"))
                 .andExpect(status().isBadRequest());
 
         assertEquals(MissionAssignmentModeHolder.Mode.CENTRALIZED, modeHolder.get());
+    }
+
+    private static RequestPostProcessor operator() {
+        return SecurityMockMvcRequestPostProcessors.jwt()
+                .authorities(new SimpleGrantedAuthority("ROLE_OPERATOR"));
     }
 }
