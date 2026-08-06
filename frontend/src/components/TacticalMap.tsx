@@ -25,6 +25,7 @@ const RISK_ZONES_SOURCE_ID = "risk-zones";
 const MISSIONS_SOURCE_ID = "missions";
 const PENDING_MISSION_SOURCE_ID = "pending-mission";
 const ZONE_DRAFT_SOURCE_ID = "zone-draft";
+const ZONE_DRAFT_POINTS_SOURCE_ID = "zone-draft-points";
 // Same cadence as KpiBar - this is overlay data that doesn't need
 // push-on-every-write freshness the way drone positions do.
 const MISSIONS_POLL_INTERVAL_MS = 5000;
@@ -91,6 +92,21 @@ function zoneDraftToGeoJson(points: [number, number][]) {
     features: [
       { type: "Feature" as const, properties: {}, geometry: { type: "Polygon" as const, coordinates: [[...points, points[0]]] } },
     ],
+  };
+}
+
+// One dot per corner already placed - the line/polygon preview above gives
+// no feedback at all for a single click (it only draws once 2+ points
+// exist), which read as unresponsive. A dot appears the instant a corner
+// lands, whether or not it's part of a line yet.
+function zoneDraftPointsToGeoJson(points: [number, number][]) {
+  return {
+    type: "FeatureCollection" as const,
+    features: points.map((point) => ({
+      type: "Feature" as const,
+      properties: {},
+      geometry: { type: "Point" as const, coordinates: point },
+    })),
   };
 }
 
@@ -286,6 +302,17 @@ export default function TacticalMap() {
         paint: { "line-color": "#f97316", "line-width": 2, "line-dasharray": [1, 1] },
       });
 
+      mapRef.current?.addSource(ZONE_DRAFT_POINTS_SOURCE_ID, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      mapRef.current?.addLayer({
+        id: ZONE_DRAFT_POINTS_SOURCE_ID,
+        type: "circle",
+        source: ZONE_DRAFT_POINTS_SOURCE_ID,
+        paint: { "circle-radius": 4, "circle-color": "#f97316", "circle-stroke-width": 1.5, "circle-stroke-color": "#fff7ed" },
+      });
+
       mapLoadedRef.current = true;
       refreshMissions();
       refreshZones();
@@ -317,12 +344,38 @@ export default function TacticalMap() {
   }, [pendingPoints]);
 
   // Same idea as the pending-mission preview above, for a not-yet-declared
-  // zone's corners.
+  // zone's corners - plus a dot per corner (zoneDraftPointsToGeoJson) so a
+  // single click gives immediate feedback instead of nothing happening
+  // until a second one lands.
   useEffect(() => {
-    const source = mapRef.current?.getSource(ZONE_DRAFT_SOURCE_ID);
-    if (!source || !("setData" in source)) return;
-    (source as GeoJSONSource).setData(zoneDraftToGeoJson(zonePoints));
+    const lineSource = mapRef.current?.getSource(ZONE_DRAFT_SOURCE_ID);
+    if (lineSource && "setData" in lineSource) {
+      (lineSource as GeoJSONSource).setData(zoneDraftToGeoJson(zonePoints));
+    }
+    const pointsSource = mapRef.current?.getSource(ZONE_DRAFT_POINTS_SOURCE_ID);
+    if (pointsSource && "setData" in pointsSource) {
+      (pointsSource as GeoJSONSource).setData(zoneDraftPointsToGeoJson(zonePoints));
+    }
   }, [zonePoints]);
+
+  // A plain click can easily register a pixel or two of movement (mouse
+  // jitter, a trackpad tap), which MapLibre then treats as a drag-pan
+  // instead of a click - the map nudges instead of placing the point, and
+  // a double-click while placing two corners close together zooms instead
+  // of adding both. Both compete with click-to-place while either capture
+  // mode is on, so they're suspended for exactly that window and restored
+  // the moment neither is (toggle off, confirm, or discard all flow
+  // through these two booleans going false).
+  useEffect(() => {
+    if (!mapRef.current) return;
+    if (dispatching || zoneDrawing) {
+      mapRef.current.dragPan.disable();
+      mapRef.current.doubleClickZoom.disable();
+    } else {
+      mapRef.current.dragPan.enable();
+      mapRef.current.doubleClickZoom.enable();
+    }
+  }, [dispatching, zoneDrawing]);
 
   function toggleDispatch() {
     setDispatching((current) => !current);
