@@ -1,5 +1,5 @@
 #!/bin/sh
-# Sprint 11: provisions everything MQTT TLS + per-drone auth needs before
+# Provisions everything MQTT TLS + per-drone auth needs before
 # mosquitto starts - a self-signed CA/server certificate and the
 # password file (backend + a fixed range of pre-provisioned drone
 # identities, since this is a demo fleet of a known rough size, not an
@@ -52,7 +52,7 @@ if [ ! -f "$CONFIG_DIR/passwd" ]; then
     i=$((i + 1))
   done
   # Dedicated identities for backend tests (DroneTelemetryListenerTests /
-  # MissionStatusListenerTests / MissionBidListenerTests, Sprint 14) that
+  # MissionStatusListenerTests / MissionBidListenerTests) that
   # publish MQTT messages directly - kept separate from drone-1..N so a
   # real simulator run's data can never collide with a test run's, and
   # each test class gets its own so *test* runs can't collide with each
@@ -63,6 +63,7 @@ if [ ! -f "$CONFIG_DIR/passwd" ]; then
   mosquitto_passwd -b "$CONFIG_DIR/passwd" test-drone-2 "$MQTT_DRONE_PASSWORD"
   mosquitto_passwd -b "$CONFIG_DIR/passwd" test-drone-3 "$MQTT_DRONE_PASSWORD"
   mosquitto_passwd -b "$CONFIG_DIR/passwd" test-drone-4 "$MQTT_DRONE_PASSWORD"
+  mosquitto_passwd -b "$CONFIG_DIR/passwd" test-drone-5 "$MQTT_DRONE_PASSWORD"
   # mosquitto_passwd creates the file mode 0600 (owner-only); the broker
   # itself runs as the unprivileged "mosquitto" user, not whatever ran
   # this setup script (root, in the mosquitto-setup container), so it

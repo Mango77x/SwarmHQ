@@ -4,9 +4,10 @@ import { Map as MapLibreMap, Marker, NavigationControl, setWorkerUrl } from "map
 import "maplibre-gl/dist/maplibre-gl.css";
 import { fetchDrones, type Drone } from "../api/drones";
 import { connectLiveDrones } from "../api/liveDrones";
-import { createMission, fetchMissions, type Mission, type MissionPriority } from "../api/missions";
+import { cancelMission, createMission, fetchMissions, type Mission, type MissionPriority } from "../api/missions";
 import { fetchZones } from "../api/zones";
 import AlertsPanel from "./AlertsPanel";
+import MissionActionPanel from "./MissionActionPanel";
 import MissionDispatchControl from "./MissionDispatchControl";
 
 // Vite doesn't detect maplibre-gl's internal worker construction and
@@ -54,7 +55,7 @@ function missionsToGeoJson(missions: Mission[]) {
       )
       .map((mission) => ({
         type: "Feature" as const,
-        properties: { status: mission.status, color: MISSION_STATUS_COLOR[mission.status] },
+        properties: { id: mission.id, status: mission.status, color: MISSION_STATUS_COLOR[mission.status] },
         geometry: { type: "LineString" as const, coordinates: mission.route },
       })),
   };
@@ -92,13 +93,30 @@ export default function TacticalMap() {
   dispatchingRef.current = dispatching;
   pendingPointsRef.current = pendingPoints;
 
+  // Mission selection (click a route on the map to manage it): the latest
+  // fetched list lives in a ref so the map's click handler - registered
+  // once, like the dispatch one above - can look a clicked feature's id up
+  // without closing over stale state.
+  const missionsRef = useRef<Mission[]>([]);
+  const [selectedMission, setSelectedMission] = useState<Mission | null>(null);
+  const selectedMissionIdRef = useRef<number | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  selectedMissionIdRef.current = selectedMission?.id ?? null;
+
   function refreshMissions() {
     if (!mapRef.current || !mapLoadedRef.current) return;
     fetchMissions()
       .then((missions) => {
+        missionsRef.current = missions;
         const source = mapRef.current?.getSource(MISSIONS_SOURCE_ID);
         if (source && "setData" in source) {
           (source as GeoJSONSource).setData(missionsToGeoJson(missions));
+        }
+        // Keeps an open panel in sync with the poll instead of showing a
+        // stale status - clears it if the mission dropped out of the
+        // PENDING/ACTIVE set entirely (e.g. a cancel was just confirmed).
+        if (selectedMissionIdRef.current != null) {
+          setSelectedMission(missions.find((m) => m.id === selectedMissionIdRef.current) ?? null);
         }
       })
       .catch(() => {
@@ -169,6 +187,21 @@ export default function TacticalMap() {
           "line-dasharray": ["case", ["==", ["get", "status"], "PENDING"], ["literal", [2, 1.5]], ["literal", [1, 0]]],
         },
       });
+      // Selecting a mission (to cancel/recall it) rather than starting a
+      // new dispatch - ignored while actively placing a dispatch route so
+      // the two click-driven flows can't fight over the same click.
+      mapRef.current?.on("click", MISSIONS_SOURCE_ID, (event) => {
+        if (dispatchingRef.current) return;
+        const id = event.features?.[0]?.properties?.id;
+        if (typeof id !== "number") return;
+        setSelectedMission(missionsRef.current.find((m) => m.id === id) ?? null);
+      });
+      mapRef.current?.on("mouseenter", MISSIONS_SOURCE_ID, () => {
+        if (mapRef.current) mapRef.current.getCanvas().style.cursor = "pointer";
+      });
+      mapRef.current?.on("mouseleave", MISSIONS_SOURCE_ID, () => {
+        if (mapRef.current) mapRef.current.getCanvas().style.cursor = "";
+      });
 
       mapRef.current?.addSource(PENDING_MISSION_SOURCE_ID, {
         type: "geojson",
@@ -235,6 +268,21 @@ export default function TacticalMap() {
     setPendingPoints([]);
   }
 
+  function cancelSelectedMission() {
+    if (!selectedMission) return;
+    setCancelling(true);
+    cancelMission(selectedMission.id)
+      .then((updated) => {
+        setSelectedMission(updated);
+        setError(null);
+        refreshMissions();
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to cancel mission");
+      })
+      .finally(() => setCancelling(false));
+  }
+
   useEffect(() => {
     function upsertMarker(drone: Drone) {
       if (drone.lat == null || drone.lon == null || !mapRef.current) return;
@@ -299,6 +347,14 @@ export default function TacticalMap() {
         onConfirm={confirmDispatch}
         onCancel={discardDispatch}
       />
+      {selectedMission && (
+        <MissionActionPanel
+          mission={selectedMission}
+          cancelling={cancelling}
+          onCancel={cancelSelectedMission}
+          onClose={() => setSelectedMission(null)}
+        />
+      )}
       <div
         className="absolute bottom-4 left-4 flex items-center gap-1.5 rounded bg-slate-950/80 px-2 py-1 text-xs text-slate-300 shadow-lg"
         title={live ? "Live updates connected" : "Live updates disconnected - reconnecting…"}

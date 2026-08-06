@@ -102,7 +102,8 @@ schema owned by Flyway (`backend/src/main/resources/db/migration`):
   many-to-one assigned drone (kept single-drone for MVP simplicity - the
   "assign missions to multiple drones" case is deferred to the swarm
   differentiation layer, not solved here), status (`PENDING` / `ACTIVE` /
-  `COMPLETED` / `FAILED`), priority (`LOW` / `MEDIUM` / `HIGH`), created-at
+  `COMPLETED` / `FAILED` / `CANCELLED`), priority (`LOW` / `MEDIUM` /
+  `HIGH`), created-at
   timestamp. Unpopulated (schema only, no writer) until Sprint 10's
   `MissionAssignmentService` - see "Mission assignment" below.
 - **Event**: append-only audit log entry - many-to-one to `Drone` (required)
@@ -181,9 +182,12 @@ Implemented as of Sprint 4
     assignment): `{"missionId": 5, "route": [[lon,lat], ...], "priority":
     "HIGH"}` - the same `[lon,lat]` order as every REST geometry DTO.
   - `drones/{externalId}/mission-status` (simulator → backend, published
-    once the drone finishes or aborts the route):
-    `{"missionId": 5, "status": "COMPLETED"}` or
-    `{"missionId": 5, "status": "FAILED", "reason": "low_battery"}`.
+    once the drone finishes, aborts, or is recalled from the route):
+    `{"missionId": 5, "status": "COMPLETED"}`,
+    `{"missionId": 5, "status": "FAILED", "reason": "low_battery"}`, or
+    `{"missionId": 5, "status": "CANCELLED"}` (the drone's own reply to a
+    `drones/{externalId}/mission/cancel` command from the backend - see C2
+    command layer item 2 below).
 - **MQTT is QoS1 ("at least once") in both directions - listeners must be
   idempotent, not just correct on a single delivery.** A message can be
   legitimately redelivered by the broker if it doesn't get a timely PUBACK,
@@ -826,11 +830,23 @@ portfolio-complete as of item 1.
    the map, choose a priority, send it. Pending/active missions also
    render as lines on the map now, colored by status, so a dispatched
    order is visible instead of only a row in a table nobody sees.
-2. **Cancel a mission / recall a drone (RTB).** Doesn't exist on either
-   side yet. Right now a mission only reaches a terminal state via the
-   simulator's own completion logic; there's no operator override to
-   abort one in flight or order its drone back to base. The sharpest
-   gap in the current design: orders can be given but never revoked.
+2. ✅ **Cancel a mission / recall a drone (RTB).** Done -
+   `POST /api/missions/{id}/cancel` (`MissionController`/`MissionService`).
+   A `PENDING` mission (never handed to a drone) cancels immediately, no
+   MQTT round trip needed. An `ACTIVE` one publishes
+   `drones/{externalId}/mission/cancel`, the same eventual-consistency
+   pattern as completion/failure - the mission stays `ACTIVE` in the
+   response until the drone actually confirms via `mission-status:
+   CANCELLED`, not optimistically flipped by the request itself. The
+   simulator (`Drone.cancel_mission`) breaks off whatever it's flying and
+   retargets to `route[0]` (`RETURNING`), reusing the exact same RTB
+   mechanism the low-battery auto-abort already used - "recall to base" and
+   "battery forced me home" are the same maneuver from the drone's point
+   of view, just triggered differently. An already-`COMPLETED`/`FAILED`/
+   `CANCELLED` mission is rejected (409), same as calling it twice. On the
+   map, clicking a rendered mission line opens `MissionActionPanel` with a
+   cancel/recall button when applicable. Closes the gap item 1 left open:
+   an order can now be revoked, not just given.
 3. **Manual assignment override.** A "force-assign this drone to this
    mission" action that bypasses both the centralized engine and the
    auction, the most literally "command and control" of the four but

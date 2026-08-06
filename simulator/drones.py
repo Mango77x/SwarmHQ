@@ -49,6 +49,7 @@ class Drone:
     _patrol_target_index: int = field(init=False)
     _pending_mission_event: Optional[dict] = field(init=False)
     _signal_lost_ticks_remaining: int = field(init=False)
+    _cancel_requested: bool = field(init=False)
 
     def __post_init__(self) -> None:
         self.status = DroneStatus.PATROLLING
@@ -62,6 +63,7 @@ class Drone:
         self._patrol_target_index = self._target_index
         self._pending_mission_event = None
         self._signal_lost_ticks_remaining = 0
+        self._cancel_requested = False
         # tick() runs on the main loop thread; start_mission() is called
         # from the MQTT client's own network thread (loop_start()) - both
         # mutate the same state, so they're serialized here.
@@ -88,6 +90,23 @@ class Drone:
             self._retarget(DroneStatus.ON_MISSION, target_index=0)
             return True
 
+    def cancel_mission(self, mission_id: int) -> bool:
+        """Requests cancellation of the given mission, if it's the one
+        currently active. The actual abort + recall-to-base happens on the
+        next tick() (see _apply_cancel_if_requested), not here - this runs
+        on the MQTT client's own network thread, and setting
+        _pending_mission_event directly from here would race a concurrent
+        tick() resetting that field to None at the top of its own call, the
+        same reasoning start_mission() follows for _retarget() instead of
+        producing an event itself. Returns False if this mission isn't the
+        one currently active (already completed/aborted on its own, or a
+        stale/duplicate command referencing an old mission id)."""
+        with self._lock:
+            if self.status is not DroneStatus.ON_MISSION or self.active_mission_id != mission_id:
+                return False
+            self._cancel_requested = True
+            return True
+
     def tick(self, position_override: Optional[Waypoint] = None) -> Optional[dict]:
         """Advances the drone by one publish interval. Returns a
         mission-status event ({"missionId", "status", ["reason"]}) if the
@@ -103,6 +122,7 @@ class Drone:
         whatever the flock is doing."""
         with self._lock:
             self._pending_mission_event = None
+            self._apply_cancel_if_requested()
             self._drain_battery_if_active()
             if position_override is not None and self.status is DroneStatus.PATROLLING:
                 self.lat, self.lon = position_override
@@ -126,6 +146,17 @@ class Drone:
             "status": self.status.value,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+
+    def _apply_cancel_if_requested(self) -> None:
+        if not self._cancel_requested:
+            return
+        self._cancel_requested = False
+        if self.status is not DroneStatus.ON_MISSION:
+            return  # completed or aborted on its own before this tick ran
+        self._pending_mission_event = {"missionId": self.active_mission_id, "status": "CANCELLED"}
+        self.active_mission_id = None
+        self._mission_route = None
+        self._retarget(DroneStatus.RETURNING, target_index=0)
 
     def _active_route(self) -> List[Waypoint]:
         return self._mission_route if self.status is DroneStatus.ON_MISSION else self.route

@@ -1,7 +1,11 @@
 package com.swarmhq.web;
 
+import com.swarmhq.model.Drone;
+import com.swarmhq.model.DroneStatus;
 import com.swarmhq.model.Mission;
 import com.swarmhq.model.MissionPriority;
+import com.swarmhq.model.MissionStatus;
+import com.swarmhq.repository.DroneRepository;
 import com.swarmhq.repository.MissionRepository;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Coordinate;
@@ -16,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -33,6 +38,9 @@ class MissionControllerTests {
 
     @Autowired
     private MissionRepository missionRepository;
+
+    @Autowired
+    private DroneRepository droneRepository;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -67,5 +75,59 @@ class MissionControllerTests {
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.priority").value("LOW"))
                 .andExpect(jsonPath("$.route.length()").value(2));
+    }
+
+    @Test
+    void cancellingAPendingMissionMarksItCancelledImmediately() throws Exception {
+        Mission mission = missionRepository.saveAndFlush(pendingMission());
+
+        mockMvc.perform(post("/api/missions/{id}/cancel", mission.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+    }
+
+    @Test
+    void cancellingAnAlreadyTerminalMissionIsRejected() throws Exception {
+        Mission mission = pendingMission();
+        mission.setStatus(MissionStatus.COMPLETED);
+        missionRepository.saveAndFlush(mission);
+
+        mockMvc.perform(post("/api/missions/{id}/cancel", mission.getId()))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void cancellingAnUnknownMissionReturnsNotFound() throws Exception {
+        mockMvc.perform(post("/api/missions/{id}/cancel", 9_999_999L))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void cancellingAnActiveMissionPublishesTheCommandAndLeavesItActiveUntilConfirmed() throws Exception {
+        // The mission only flips to CANCELLED once the drone's own
+        // mission-status report comes back (see MissionStatusListenerTests)
+        // - this just proves the cancel command goes out without error and
+        // the mission isn't optimistically marked cancelled up front.
+        Drone drone = droneRepository.saveAndFlush(
+                new Drone("mission-cancel-test-drone", "quadcopter", DroneStatus.ON_MISSION, 80));
+        Mission mission = pendingMission();
+        mission.setAssignedDrone(drone);
+        mission.setStatus(MissionStatus.ACTIVE);
+        missionRepository.saveAndFlush(mission);
+
+        mockMvc.perform(post("/api/missions/{id}/cancel", mission.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+
+        assertEquals(MissionStatus.ACTIVE, missionRepository.findById(mission.getId()).orElseThrow().getStatus());
+    }
+
+    private Mission pendingMission() {
+        return new Mission(
+                GEOMETRY_FACTORY.createLineString(new Coordinate[] {
+                        new Coordinate(-3.7038, 40.4168),
+                        new Coordinate(-3.6978, 40.4228)
+                }),
+                MissionPriority.MEDIUM);
     }
 }
