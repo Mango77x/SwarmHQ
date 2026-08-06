@@ -942,12 +942,22 @@ not weapons integration.
    provider, and every `api/*.ts` call goes through a single `apiFetch`
    wrapper (`api/http.ts`) that attaches the access token, so no
    individual module needs to know Keycloak exists.
-   **Known follow-up, not silently skipped:** the `/ws` STOMP endpoint
-   itself isn't authenticated yet. Its telemetry/alert/mode broadcasts
-   are read-only, same as the public GETs, so there's no way to *act*
-   over that channel today - but authenticating the STOMP CONNECT frame
-   is a different mechanism from the HTTP filter chain above it, and is
-   tracked separately rather than assumed covered.
+   Three follow-ups closed the same day, once the core piece above was
+   live: the frontend now decodes its own access token client-side
+   (`auth/useIsOperator.ts`, never a security boundary by itself - the
+   backend rules above are what actually enforce this) to hide/disable
+   every mutating control for an `OBSERVER` session, instead of letting
+   one discover the 403 by clicking; Keycloak's own data directory is a
+   named Docker volume now (`keycloak-data`), so a container recreate no
+   longer silently wipes the realm and demo users back to the committed
+   JSON's starting state; and the `/ws` STOMP endpoint's own CONNECT
+   frame is now authenticated too (`JwtStompAuthInterceptor` on the
+   `clientInboundChannel`, validating the same way the HTTP filter chain
+   does, since SecurityConfig's `permitAll` on `/ws/**` only ever covers
+   the initial SockJS handshake request, not the STOMP frames that
+   follow over the same upgraded connection) - every `connectLive*()`
+   client (`liveDrones.ts`, `events.ts`, `mode.ts`) sends the access
+   token as a STOMP `Authorization` header to match.
 2. **Geofence as an active constraint, not just an alert.** No new
    technology - `ST_Contains` (already in `RiskZoneRepository`) is
    already the right tool. Warn (or block) at mission creation if the

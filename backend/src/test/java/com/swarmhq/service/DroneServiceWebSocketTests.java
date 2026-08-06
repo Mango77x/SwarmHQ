@@ -8,11 +8,17 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 import org.springframework.web.socket.sockjs.client.SockJsClient;
@@ -38,8 +44,19 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * will hang/fail locally; verify via the Docker backend instead
  * (`docker compose run --rm backend ./mvnw test`, or build the
  * backend-build Dockerfile stage with tests un-skipped).
+ *
+ * The real JwtDecoder (auto-configured from swarmhq.mqtt's sibling
+ * property, spring.security.oauth2.resourceserver.jwt.jwk-set-uri) needs
+ * a running Keycloak to actually validate anything against - not
+ * available in this test's context, and not worth starting one just for
+ * this - so StubJwtDecoderConfig below replaces it with a decoder that
+ * accepts any token value, purely to exercise JwtStompAuthInterceptor's
+ * own CONNECT-frame handling (a missing/malformed Authorization header
+ * still gets rejected either way, since that check happens before the
+ * decoder is ever called).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(DroneServiceWebSocketTests.StubJwtDecoderConfig.class)
 class DroneServiceWebSocketTests {
 
     private static final String EXTERNAL_ID = "ws-broadcast-test";
@@ -66,8 +83,12 @@ class DroneServiceWebSocketTests {
         WebSocketStompClient stompClient = new WebSocketStompClient(
                 new SockJsClient(List.of(new WebSocketTransport(new StandardWebSocketClient()))));
 
+        StompHeaders connectHeaders = new StompHeaders();
+        connectHeaders.add("Authorization", "Bearer test-token");
+
         StompSession session = stompClient
-                .connectAsync("ws://localhost:" + port + "/ws", new StompSessionHandlerAdapter() {})
+                .connectAsync("ws://localhost:" + port + "/ws", new WebSocketHttpHeaders(), connectHeaders,
+                        new StompSessionHandlerAdapter() {})
                 .get(5, TimeUnit.SECONDS);
 
         BlockingQueue<byte[]> received = new LinkedBlockingQueue<>();
@@ -99,5 +120,16 @@ class DroneServiceWebSocketTests {
         assertEquals(DroneStatus.PATROLLING, response.status());
 
         session.disconnect();
+    }
+
+    @TestConfiguration
+    static class StubJwtDecoderConfig {
+        @Bean
+        JwtDecoder jwtDecoder() {
+            return token -> Jwt.withTokenValue(token)
+                    .header("alg", "none")
+                    .claim("sub", "test-user")
+                    .build();
+        }
     }
 }

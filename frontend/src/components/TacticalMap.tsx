@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { GeoJSONSource, MapMouseEvent } from "maplibre-gl";
 import { Map as MapLibreMap, Marker, NavigationControl, setWorkerUrl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { useIsOperator } from "../auth/useIsOperator";
 import { fetchDrones, type Drone } from "../api/drones";
 import { connectLiveDrones } from "../api/liveDrones";
 import { assignMission, cancelMission, createMission, fetchMissions, type Mission, type MissionPriority } from "../api/missions";
@@ -123,6 +124,7 @@ function droneMarkerElement(drone: Drone): HTMLDivElement {
 }
 
 export default function TacticalMap() {
+  const isOperator = useIsOperator();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markersRef = useRef<Map<string, Marker>>(new Map());
@@ -582,6 +584,7 @@ export default function TacticalMap() {
         pointsCaptured={pendingPoints.length}
         priority={pendingPriority}
         sending={sending}
+        isOperator={isOperator}
         onToggle={toggleDispatch}
         onPriorityChange={setPendingPriority}
         onConfirm={confirmDispatch}
@@ -592,6 +595,7 @@ export default function TacticalMap() {
         pointsCaptured={zonePoints.length}
         name={zoneName}
         sending={zoneSending}
+        isOperator={isOperator}
         onToggle={toggleZoneDrawing}
         onNameChange={setZoneName}
         onConfirm={confirmZone}
@@ -606,6 +610,7 @@ export default function TacticalMap() {
           availableDrones={availableDrones}
           assigning={assigning}
           onAssign={assignSelectedMission}
+          isOperator={isOperator}
         />
       )}
       <div

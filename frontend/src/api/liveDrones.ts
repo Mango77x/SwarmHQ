@@ -1,5 +1,6 @@
 import { Client } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
+import { getAccessToken } from "./http";
 import type { Drone } from "./drones";
 
 const DRONE_UPDATES_TOPIC = "/topic/drones";
@@ -16,6 +17,7 @@ export function connectLiveDrones(
 ): () => void {
   const client = new Client({
     webSocketFactory: () => new SockJS("/ws"),
+    connectHeaders: { Authorization: `Bearer ${getAccessToken() ?? ""}` },
     reconnectDelay: 3000,
     onConnect: () => {
       onConnectionChange(true);

@@ -1,6 +1,6 @@
 import { Client } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
-import { apiFetch } from "./http";
+import { apiFetch, getAccessToken } from "./http";
 
 export type MissionAssignmentMode = "centralized" | "auction";
 
@@ -40,6 +40,7 @@ export async function updateMode(mode: MissionAssignmentMode): Promise<ModeState
 export function connectLiveMode(onModeChange: (state: ModeState) => void): () => void {
   const client = new Client({
     webSocketFactory: () => new SockJS("/ws"),
+    connectHeaders: { Authorization: `Bearer ${getAccessToken() ?? ""}` },
     reconnectDelay: 3000,
     onConnect: () => {
       client.subscribe(MODE_UPDATES_TOPIC, (message) => {

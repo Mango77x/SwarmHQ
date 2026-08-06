@@ -3,6 +3,7 @@ interface Props {
   pointsCaptured: number;
   name: string;
   sending: boolean;
+  isOperator: boolean;
   onToggle: () => void;
   onNameChange: (name: string) => void;
   onConfirm: () => void;
@@ -24,6 +25,7 @@ export default function ZoneDispatchControl({
   pointsCaptured,
   name,
   sending,
+  isOperator,
   onToggle,
   onNameChange,
   onConfirm,
@@ -34,8 +36,9 @@ export default function ZoneDispatchControl({
       <button
         type="button"
         onClick={onToggle}
-        title="Click points on the map to outline a new restricted zone"
-        className={`rounded-full border px-3 py-1 text-xs font-semibold tracking-wide uppercase transition-colors ${
+        disabled={!isOperator}
+        title={isOperator ? "Click points on the map to outline a new restricted zone" : "Requires the OPERATOR role"}
+        className={`rounded-full border px-3 py-1 text-xs font-semibold tracking-wide uppercase transition-colors disabled:opacity-50 ${
           active
             ? "border-orange-500 bg-orange-500/10 text-orange-400"
             : "border-slate-700 bg-slate-950/80 text-slate-300"

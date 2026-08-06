@@ -12,6 +12,7 @@ interface Props {
   availableDrones: string[];
   assigning: boolean;
   onAssign: (droneExternalId: string) => void;
+  isOperator: boolean;
 }
 
 /**
@@ -27,9 +28,10 @@ export default function MissionActionPanel({
   availableDrones,
   assigning,
   onAssign,
+  isOperator,
 }: Props) {
-  const canCancel = mission.status === "PENDING" || mission.status === "ACTIVE";
-  const canManuallyAssign = mission.status === "PENDING";
+  const canCancel = isOperator && (mission.status === "PENDING" || mission.status === "ACTIVE");
+  const canManuallyAssign = isOperator && mission.status === "PENDING";
   const [pickedDrone, setPickedDrone] = useState("");
 
   return (

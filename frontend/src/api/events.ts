@@ -1,6 +1,6 @@
 import { Client } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
-import { apiFetch } from "./http";
+import { apiFetch, getAccessToken } from "./http";
 
 export type EventType =
   | "LOW_BATTERY"
@@ -32,6 +32,7 @@ export async function fetchEvents(): Promise<DroneEvent[]> {
 export function connectLiveEvents(onEvent: (event: DroneEvent) => void): () => void {
   const client = new Client({
     webSocketFactory: () => new SockJS("/ws"),
+    connectHeaders: { Authorization: `Bearer ${getAccessToken() ?? ""}` },
     reconnectDelay: 3000,
     onConnect: () => {
       client.subscribe(EVENT_UPDATES_TOPIC, (message) => {

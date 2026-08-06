@@ -7,6 +7,7 @@ interface Props {
   pointsCaptured: number;
   priority: MissionPriority;
   sending: boolean;
+  isOperator: boolean;
   onToggle: () => void;
   onPriorityChange: (priority: MissionPriority) => void;
   onConfirm: () => void;
@@ -24,6 +25,7 @@ export default function MissionDispatchControl({
   pointsCaptured,
   priority,
   sending,
+  isOperator,
   onToggle,
   onPriorityChange,
   onConfirm,
@@ -34,8 +36,9 @@ export default function MissionDispatchControl({
       <button
         type="button"
         onClick={onToggle}
-        title="Click two points on the map to dispatch a mission along that route"
-        className={`rounded-full border px-3 py-1 text-xs font-semibold tracking-wide uppercase transition-colors ${
+        disabled={!isOperator}
+        title={isOperator ? "Click two points on the map to dispatch a mission along that route" : "Requires the OPERATOR role"}
+        className={`rounded-full border px-3 py-1 text-xs font-semibold tracking-wide uppercase transition-colors disabled:opacity-50 ${
           active
             ? "border-blue-500 bg-blue-500/10 text-blue-400"
             : "border-slate-700 bg-slate-950/80 text-slate-300"

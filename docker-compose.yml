@@ -65,6 +65,13 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
     volumes:
       - ./infra/keycloak/import:/opt/keycloak/data/import:ro
+      # Named volume on the parent data dir (not the whole container),
+      # same as postgres-data below - --import-realm only actually
+      # imports when the realm doesn't already exist, so without this a
+      # container recreate (docker compose down/up, an image rebuild)
+      # would silently wipe every user/role/realm edit back to the
+      # committed JSON's starting state instead of surviving it.
+      - keycloak-data:/opt/keycloak/data
     ports:
       - "${KEYCLOAK_PORT:-8081}:8080"
 
@@ -108,3 +115,4 @@ services:
 
 volumes:
   postgres-data:
+  keycloak-data:

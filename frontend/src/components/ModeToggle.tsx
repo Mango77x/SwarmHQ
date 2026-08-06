@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { useIsOperator } from "../auth/useIsOperator";
 import { connectLiveMode, fetchMode, updateMode, type MissionAssignmentMode } from "../api/mode";
 
 export default function ModeToggle() {
   const [mode, setMode] = useState<MissionAssignmentMode | null>(null);
   const [pending, setPending] = useState(false);
+  const isOperator = useIsOperator();
 
   useEffect(() => {
     let cancelled = false;
@@ -42,8 +44,8 @@ export default function ModeToggle() {
     <button
       type="button"
       onClick={toggle}
-      disabled={pending}
-      title="Switch between centralized assignment and swarm (auction) mode"
+      disabled={pending || !isOperator}
+      title={isOperator ? "Switch between centralized assignment and swarm (auction) mode" : "Requires the OPERATOR role"}
       className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide uppercase transition-colors disabled:opacity-50 ${
         isAuction
           ? "border-orange-500 bg-orange-500/10 text-orange-400"
