@@ -11,3 +11,18 @@ export async function fetchZones(): Promise<Zone[]> {
   }
   return response.json();
 }
+
+// ring doesn't need to already be closed - the backend appends the first
+// point again if the caller didn't, so this can be exactly the points an
+// operator clicked on the map.
+export async function createZone(name: string, ring: [number, number][]): Promise<Zone> {
+  const response = await fetch("/api/zones", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, ring }),
+  });
+  if (!response.ok) {
+    throw new Error(`POST /api/zones failed: ${response.status}`);
+  }
+  return response.json();
+}

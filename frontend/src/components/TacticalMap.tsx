@@ -5,10 +5,11 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { fetchDrones, type Drone } from "../api/drones";
 import { connectLiveDrones } from "../api/liveDrones";
 import { assignMission, cancelMission, createMission, fetchMissions, type Mission, type MissionPriority } from "../api/missions";
-import { fetchZones } from "../api/zones";
+import { createZone, fetchZones, type Zone } from "../api/zones";
 import AlertsPanel from "./AlertsPanel";
 import MissionActionPanel from "./MissionActionPanel";
 import MissionDispatchControl from "./MissionDispatchControl";
+import ZoneDispatchControl from "./ZoneDispatchControl";
 
 // Vite doesn't detect maplibre-gl's internal worker construction and
 // never bundles maplibre-gl-worker.mjs as its own asset, so tiles never
@@ -23,6 +24,7 @@ const MADRID_CENTER: [number, number] = [-3.7038, 40.4168];
 const RISK_ZONES_SOURCE_ID = "risk-zones";
 const MISSIONS_SOURCE_ID = "missions";
 const PENDING_MISSION_SOURCE_ID = "pending-mission";
+const ZONE_DRAFT_SOURCE_ID = "zone-draft";
 // Same cadence as KpiBar - this is overlay data that doesn't need
 // push-on-every-write freshness the way drone positions do.
 const MISSIONS_POLL_INTERVAL_MS = 5000;
@@ -58,6 +60,37 @@ function missionsToGeoJson(missions: Mission[]) {
         properties: { id: mission.id, status: mission.status, color: MISSION_STATUS_COLOR[mission.status] },
         geometry: { type: "LineString" as const, coordinates: mission.route },
       })),
+  };
+}
+
+function zonesToGeoJson(zones: Zone[]) {
+  return {
+    type: "FeatureCollection" as const,
+    features: zones.map((zone) => ({
+      type: "Feature" as const,
+      properties: { name: zone.name },
+      geometry: { type: "Polygon" as const, coordinates: [zone.ring] },
+    })),
+  };
+}
+
+// The in-progress corners of a not-yet-declared zone: an open path below
+// the 3-point minimum (just visual feedback for what's been clicked so
+// far), a closed polygon preview once there's enough to actually form one.
+function zoneDraftToGeoJson(points: [number, number][]) {
+  if (points.length < 3) {
+    return {
+      type: "FeatureCollection" as const,
+      features: points.length < 2 ? [] : [
+        { type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: points } },
+      ],
+    };
+  }
+  return {
+    type: "FeatureCollection" as const,
+    features: [
+      { type: "Feature" as const, properties: {}, geometry: { type: "Polygon" as const, coordinates: [[...points, points[0]]] } },
+    ],
   };
 }
 
@@ -105,6 +138,33 @@ export default function TacticalMap() {
   const [assigning, setAssigning] = useState(false);
   selectedMissionIdRef.current = selectedMission?.id ?? null;
 
+  // Zone drawing (map-click capture, open-ended point count instead of a
+  // mission's fixed 2): same ref-mirroring pattern as mission dispatch, so
+  // the map's click handler reads current values without closing over
+  // stale state.
+  const [zoneDrawing, setZoneDrawing] = useState(false);
+  const [zonePoints, setZonePoints] = useState<[number, number][]>([]);
+  const [zoneName, setZoneName] = useState("");
+  const [zoneSending, setZoneSending] = useState(false);
+  const zoneDrawingRef = useRef(zoneDrawing);
+  const zonePointsRef = useRef(zonePoints);
+  zoneDrawingRef.current = zoneDrawing;
+  zonePointsRef.current = zonePoints;
+
+  function refreshZones() {
+    if (!mapRef.current || !mapLoadedRef.current) return;
+    fetchZones()
+      .then((zones) => {
+        const source = mapRef.current?.getSource(RISK_ZONES_SOURCE_ID);
+        if (source && "setData" in source) {
+          (source as GeoJSONSource).setData(zonesToGeoJson(zones));
+        }
+      })
+      .catch(() => {
+        // Non-critical overlay - the map/drones still work without it.
+      });
+  }
+
   function refreshMissions() {
     if (!mapRef.current || !mapLoadedRef.current) return;
     fetchMissions()
@@ -139,41 +199,33 @@ export default function TacticalMap() {
     mapRef.current = map;
 
     map.on("click", (event: MapMouseEvent) => {
-      if (!dispatchingRef.current || pendingPointsRef.current.length >= 2) return;
-      setPendingPoints((current) => [...current, [event.lngLat.lng, event.lngLat.lat]]);
+      const point: [number, number] = [event.lngLat.lng, event.lngLat.lat];
+      if (dispatchingRef.current) {
+        if (pendingPointsRef.current.length < 2) setPendingPoints((current) => [...current, point]);
+        return;
+      }
+      if (zoneDrawingRef.current) {
+        setZonePoints((current) => [...current, point]);
+      }
     });
 
     map.on("load", () => {
-      fetchZones()
-        .then((zones) => {
-          if (!mapRef.current) return;
-          mapRef.current.addSource(RISK_ZONES_SOURCE_ID, {
-            type: "geojson",
-            data: {
-              type: "FeatureCollection",
-              features: zones.map((zone) => ({
-                type: "Feature",
-                properties: { name: zone.name },
-                geometry: { type: "Polygon", coordinates: [zone.ring] },
-              })),
-            },
-          });
-          mapRef.current.addLayer({
-            id: `${RISK_ZONES_SOURCE_ID}-fill`,
-            type: "fill",
-            source: RISK_ZONES_SOURCE_ID,
-            paint: { "fill-color": "#ef4444", "fill-opacity": 0.15 },
-          });
-          mapRef.current.addLayer({
-            id: `${RISK_ZONES_SOURCE_ID}-outline`,
-            type: "line",
-            source: RISK_ZONES_SOURCE_ID,
-            paint: { "line-color": "#ef4444", "line-width": 1.5, "line-opacity": 0.8 },
-          });
-        })
-        .catch(() => {
-          // Non-critical overlay - the map/drones still work without it.
-        });
+      mapRef.current?.addSource(RISK_ZONES_SOURCE_ID, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      mapRef.current?.addLayer({
+        id: `${RISK_ZONES_SOURCE_ID}-fill`,
+        type: "fill",
+        source: RISK_ZONES_SOURCE_ID,
+        paint: { "fill-color": "#ef4444", "fill-opacity": 0.15 },
+      });
+      mapRef.current?.addLayer({
+        id: `${RISK_ZONES_SOURCE_ID}-outline`,
+        type: "line",
+        source: RISK_ZONES_SOURCE_ID,
+        paint: { "line-color": "#ef4444", "line-width": 1.5, "line-opacity": 0.8 },
+      });
 
       mapRef.current?.addSource(MISSIONS_SOURCE_ID, {
         type: "geojson",
@@ -190,10 +242,11 @@ export default function TacticalMap() {
         },
       });
       // Selecting a mission (to cancel/recall it) rather than starting a
-      // new dispatch - ignored while actively placing a dispatch route so
-      // the two click-driven flows can't fight over the same click.
+      // new dispatch - ignored while actively placing a dispatch route or
+      // drawing a zone so the click-driven flows can't fight over the
+      // same click.
       mapRef.current?.on("click", MISSIONS_SOURCE_ID, (event) => {
-        if (dispatchingRef.current) return;
+        if (dispatchingRef.current || zoneDrawingRef.current) return;
         const id = event.features?.[0]?.properties?.id;
         if (typeof id !== "number") return;
         setSelectedMission(missionsRef.current.find((m) => m.id === id) ?? null);
@@ -216,8 +269,26 @@ export default function TacticalMap() {
         paint: { "line-color": "#38bdf8", "line-width": 2, "line-dasharray": [1, 1] },
       });
 
+      mapRef.current?.addSource(ZONE_DRAFT_SOURCE_ID, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      mapRef.current?.addLayer({
+        id: `${ZONE_DRAFT_SOURCE_ID}-fill`,
+        type: "fill",
+        source: ZONE_DRAFT_SOURCE_ID,
+        paint: { "fill-color": "#f97316", "fill-opacity": 0.2 },
+      });
+      mapRef.current?.addLayer({
+        id: `${ZONE_DRAFT_SOURCE_ID}-outline`,
+        type: "line",
+        source: ZONE_DRAFT_SOURCE_ID,
+        paint: { "line-color": "#f97316", "line-width": 2, "line-dasharray": [1, 1] },
+      });
+
       mapLoadedRef.current = true;
       refreshMissions();
+      refreshZones();
     });
 
     return () => {
@@ -245,6 +316,14 @@ export default function TacticalMap() {
     (source as GeoJSONSource).setData({ type: "FeatureCollection", features });
   }, [pendingPoints]);
 
+  // Same idea as the pending-mission preview above, for a not-yet-declared
+  // zone's corners.
+  useEffect(() => {
+    const source = mapRef.current?.getSource(ZONE_DRAFT_SOURCE_ID);
+    if (!source || !("setData" in source)) return;
+    (source as GeoJSONSource).setData(zoneDraftToGeoJson(zonePoints));
+  }, [zonePoints]);
+
   function toggleDispatch() {
     setDispatching((current) => !current);
     setPendingPoints([]);
@@ -268,6 +347,34 @@ export default function TacticalMap() {
 
   function discardDispatch() {
     setPendingPoints([]);
+  }
+
+  function toggleZoneDrawing() {
+    setZoneDrawing((current) => !current);
+    setZonePoints([]);
+    setZoneName("");
+  }
+
+  function confirmZone() {
+    if (zonePoints.length < 3) return;
+    setZoneSending(true);
+    createZone(zoneName.trim(), zonePoints)
+      .then(() => {
+        setZoneDrawing(false);
+        setZonePoints([]);
+        setZoneName("");
+        setError(null);
+        refreshZones();
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to declare zone");
+      })
+      .finally(() => setZoneSending(false));
+  }
+
+  function discardZone() {
+    setZonePoints([]);
+    setZoneName("");
   }
 
   // Manual assignment only applies to a PENDING mission, and the drone
@@ -387,6 +494,16 @@ export default function TacticalMap() {
         onPriorityChange={setPendingPriority}
         onConfirm={confirmDispatch}
         onCancel={discardDispatch}
+      />
+      <ZoneDispatchControl
+        active={zoneDrawing}
+        pointsCaptured={zonePoints.length}
+        name={zoneName}
+        sending={zoneSending}
+        onToggle={toggleZoneDrawing}
+        onNameChange={setZoneName}
+        onConfirm={confirmZone}
+        onCancel={discardZone}
       />
       {selectedMission && (
         <MissionActionPanel

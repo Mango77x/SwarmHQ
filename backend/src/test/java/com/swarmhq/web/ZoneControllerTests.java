@@ -4,25 +4,35 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
+
+import java.util.List;
 
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Checks the zone Flyway-seeds (V3__add_risk_zones.sql, "Sector 1 Perimeter
- * Risk Zone") comes back over the REST endpoint - no test-created data
- * needed since defining zones isn't a use case yet (RiskZoneRepository has
- * no write path other than the migration).
+ * The first test checks the zone Flyway-seeds (V3__add_risk_zones.sql,
+ * "Sector 1 Perimeter Risk Zone") comes back over the REST endpoint; the
+ * rest exercise the runtime write path an operator uses to declare a new
+ * zone from the map (ZoneService.create).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
+@Transactional
 class ZoneControllerTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Test
     void listsSeededRiskZoneWithItsRing() throws Exception {
@@ -32,5 +42,33 @@ class ZoneControllerTests {
                 .andExpect(jsonPath("$[0].name").value("Sector 1 Perimeter Risk Zone"))
                 // Closed ring: 4 corners + the repeated first point.
                 .andExpect(jsonPath("$[0].ring.length()").value(5));
+    }
+
+    @Test
+    void createsAZoneFromAnOpenRingAndClosesItAutomatically() throws Exception {
+        CreateZoneRequest request = new CreateZoneRequest("Test No-Fly Area", List.of(
+                new double[] {-3.72, 40.40},
+                new double[] {-3.71, 40.40},
+                new double[] {-3.71, 40.41}));
+
+        mockMvc.perform(post("/api/zones")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("Test No-Fly Area"))
+                // 3 clicked points + the auto-appended closing point.
+                .andExpect(jsonPath("$.ring.length()").value(4));
+    }
+
+    @Test
+    void creatingAZoneWithFewerThanThreePointsIsRejected() throws Exception {
+        CreateZoneRequest request = new CreateZoneRequest("Too Small", List.of(
+                new double[] {-3.72, 40.40},
+                new double[] {-3.71, 40.40}));
+
+        mockMvc.perform(post("/api/zones")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(request)))
+                .andExpect(status().isBadRequest());
     }
 }
