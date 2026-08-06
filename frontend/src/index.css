@@ -12,3 +12,15 @@ body {
   color: #e2e8f0;
   font-family: system-ui, "Segoe UI", Roboto, sans-serif;
 }
+
+/* MapLibre defaults to a grab/grabbing hand cursor for its pan gesture.
+   !important is needed to win over its own same-specificity rule
+   regardless of which stylesheet Vite happens to output first - it only
+   affects the container's own (inherited-by-default) cursor, not the
+   canvas element itself, which TacticalMap.tsx already sets an explicit
+   inline "pointer" on while hovering a clickable mission line, so that
+   cue still works unaffected. */
+.maplibregl-canvas-container.maplibregl-interactive,
+.maplibregl-canvas-container.maplibregl-interactive:active {
+  cursor: default !important;
+}
