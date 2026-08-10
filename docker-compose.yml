@@ -56,7 +56,7 @@ services:
   # hostname checks) - fine for this project's scope, not how you'd run
   # Keycloak itself in production.
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+    image: quay.io/keycloak/keycloak:26.7
     container_name: swarmhq-keycloak
     restart: unless-stopped
     command: start-dev --import-realm
